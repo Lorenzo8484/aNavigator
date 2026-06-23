@@ -58,6 +58,18 @@
     self.busStopsFetched = [NSMutableSet set];
     self.pendingBusFetch = NO;
     
+    // Crea BusViewController — child VC per finestra autobus 3D
+    BusViewController *busVC = [[BusViewController alloc] init];
+    busVC.mapVC = self;
+    [self addChildViewController:busVC];
+    busVC.view.frame = self.view.bounds;
+    busVC.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:busVC.view];
+    [busVC didMoveToParentViewController:self];
+    busVC.view.hidden = YES;
+    busVC.view.alpha = 0;
+    self.busVC = busVC;
+    
     // Pannello log debugging
     [self setupLogPanel];
     
@@ -1279,6 +1291,23 @@
     // === VISUALE ===
     BOOL dark = st.nightMode || st.darkTheme;
     self.view.backgroundColor = dark ? [UIColor blackColor] : [UIColor colorWithWhite:0.15 alpha:1.0];
+    
+    // Bussola
+    self.compassButton.hidden = ![SettingsStore shared].showCompass;
+    
+    // Mostra edifici 3D (MapLibre — nascondi/mostra layer building)
+    if (st.show3DBuildings) {
+        [self.webView evaluateJavaScript:@"try{map.setLayoutProperty('building','visibility','visible');}catch(e){}" completionHandler:nil];
+    } else {
+        [self.webView evaluateJavaScript:@"try{map.setLayoutProperty('building','visibility','none');}catch(e){}" completionHandler:nil];
+    }
+    
+    // Tema notturno via JS
+    if (dark) {
+        [self.webView evaluateJavaScript:@"document.body.style.filter='invert(0.85)hue-rotate(180deg)'" completionHandler:nil];
+    } else {
+        [self.webView evaluateJavaScript:@"document.body.style.filter=''" completionHandler:nil];
+    }
     
     // Dimensione testo
     CGFloat fontSize;

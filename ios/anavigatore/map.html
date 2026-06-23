@@ -62,31 +62,47 @@ map.on("style.load", function() {
 // ===================================================================
 
 // ---- POSITION ----
+var markerArrow = null;
+
 function updatePosition(lat, lng) {
   userLat = lat; userLng = lng;
-  if (!markerUser) {
+  if (!markerArrow) {
+    // Create an arrow-shaped marker for user position
     var el = document.createElement("div");
-    el.style.cssText = "width:28px;height:28px;border-radius:50%;background:#4488ff;border:3px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,0.5)";
-    markerUser = new maplibregl.Marker({element:el,anchor:"center"})
+    el.style.cssText = "width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:24px solid #4488ff;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5));position:relative";
+    // White dot in center
+    var dot = document.createElement("div");
+    dot.style.cssText = "position:absolute;top:4px;left:-4px;width:8px;height:8px;border-radius:50%;background:#fff";
+    el.appendChild(dot);
+    markerArrow = new maplibregl.Marker({element:el,anchor:"center"})
       .setLngLat([lng, lat])
       .addTo(map);
   } else {
-    markerUser.setLngLat([lng, lat]);
+    markerArrow.setLngLat([lng, lat]);
+  }
+  // Update arrow rotation if we have course
+  if (userCourse > 0) {
+    markerArrow.getElement().style.transform = "rotate(" + userCourse + "deg)";
   }
   hasGps = true;
 }
 
 function centerOnUser() {
-  if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50});
+  if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50, bearing:userCourse});
 }
 
 function updateArrowRotation(heading, cameraHeading, offset) {
-  // Arrow handling — in MapLibre we just update marker position
-  // The user marker blue dot already represents position
+  // Rotate the arrow marker based on heading, camera heading and offset
+  var angle = heading;
+  if (cameraHeading) angle = angle - cameraHeading;
+  angle += offset || 0;
+  if (markerArrow) {
+    markerArrow.getElement().style.transform = "rotate(" + angle + "deg)";
+  }
 }
 
 function updateCompass(heading) {
-  // Compass is handled natively in ObjC
+  // Compass is handled natively in ObjC with compass.png
 }
 
 // ---- CAMERA ----
