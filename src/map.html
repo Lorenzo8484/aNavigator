@@ -147,29 +147,32 @@ function animateCamera(lat, lng, zoom, bearing, pitch) {
 }
 
 function setMapType(type) {
-  var urls = [
-    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+  var styles = [
+    {"version":8,"sources":{"carto":{"type":"raster","tiles":["https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]},
+    {"version":8,"sources":{"carto":{"type":"raster","tiles":["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]},
+    {"version":8,"sources":{"carto":{"type":"raster","tiles":["https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]}
   ];
-  var src = map.getSource('carto');
-  if (src && src.tiles) {
-    src.tiles = [urls[type] || urls[0]];
-    map.triggerRepaint();
-  } else {
-    // Fallback: ricarica stile completo se source non esiste
-    var styles = [
-      {"version":8,"sources":{"carto":{"type":"raster","tiles":[urls[0]],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]},
-      {"version":8,"sources":{"carto":{"type":"raster","tiles":[urls[1]],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]},
-      {"version":8,"sources":{"carto":{"type":"raster","tiles":[urls[2]],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]}
-    ];
-    map.setStyle(styles[type] || styles[0]);
-  }
+  var center = map.getCenter();
+  var zoom = map.getZoom();
+  var pitch = map.getPitch();
+  var bearing = map.getBearing();
+  map.setStyle(styles[type] || styles[0]);
+  map.once('style.load', function() {
+    map.setCenter(center);
+    map.setZoom(zoom);
+    map.setPitch(pitch);
+    map.setBearing(bearing);
+    // Re-apply brightness after style change
+    if (window._lastBrightness !== undefined) {
+      document.getElementById("map").style.filter = "brightness(" + window._lastBrightness + ")";
+    }
+  });
 }
 
-// Brightness slider: val=1.0 (bright) to 0.0 (dark)
+// Brightness slider: val=0.0-1.0, 0=normale 1=molto chiaro (ma non oltre)
 function setMapBrightness(val) {
   var bright = 0.2 + val * 0.8;
+  window._lastBrightness = bright;
   document.getElementById("map").style.filter = "brightness(" + bright + ")";
 }
 
