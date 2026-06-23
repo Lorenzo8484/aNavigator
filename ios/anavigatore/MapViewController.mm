@@ -43,9 +43,11 @@
     self.menuOpacity = [ud objectForKey:@"autista_menu_op"] ? [ud floatForKey:@"autista_menu_op"] : 1.0;
     self.speechSynthesizer = [[AVSpeechSynthesizer alloc] init];
     [self setupMapView];
+    [self applyArrowTransform];
     [self setupLocationManager];
     [self setupSearchOverlay];
     [self setupButtons];
+    [self applyMenuOpacity];
     // Tap sulla mappa chiude ricerca/tastiera
     UITapGestureRecognizer *mapTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSearch)];
     mapTap.cancelsTouchesInView = NO;
@@ -74,6 +76,11 @@
     [self setupLogPanel];
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(mapSettingsChanged) name:@"MapSettingsChanged" object:nil];
+    
+    // Timer per istruzioni vocali (ogni 2 secondi durante navigazione)
+    [NSTimer scheduledTimerWithTimeInterval:2.0 target:self selector:@selector(speakCurrentInstruction) userInfo:nil repeats:YES];
+    
+    [self applyCameraSettings];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -1042,6 +1049,7 @@
 }
 
 - (void)speakCurrentInstruction {
+    if (!self.isNavigating) return;
     SettingsStore *st = [SettingsStore shared];
     if (!st.voiceGuidance) return;
     NSString *txt = self.instructionLabel.text;
@@ -1221,6 +1229,7 @@
             [self.webView evaluateJavaScript:js completionHandler:nil];
         }
     }
+    [self fetchBusStopsIfNeeded];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateHeading:(CLHeading *)newHeading {
@@ -1234,6 +1243,7 @@
     NSString *js = [NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f)",
                     _currentHeading, _cameraHeading, [SettingsStore shared].arrowRotation];
     [self.webView evaluateJavaScript:js completionHandler:nil];
+    [self applyArrowTransform];
     
     // Update compass via JS
     [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateCompass(%f)", newHeading.trueHeading] completionHandler:nil];
@@ -1294,6 +1304,7 @@
     
     // Bussola
     self.compassButton.hidden = ![SettingsStore shared].showCompass;
+    [self applyMenuOpacity];
     
     // Mostra edifici 3D (MapLibre — nascondi/mostra layer building)
     if (st.show3DBuildings) {

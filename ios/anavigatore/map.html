@@ -36,6 +36,8 @@ var markerUser = null;
 var markerDest = null;
 var navTimer = null;
 var hasGps = false;
+var recalcLat = userLat, recalcLng = userLng;
+var _destLat = null, _destLon = null, _destName = "";
 
 // ===================================================================
 // MAPLIBRE GL JS — con stile OpenFreeMap
@@ -66,6 +68,7 @@ var markerArrow = null;
 
 function updatePosition(lat, lng) {
   userLat = lat; userLng = lng;
+  recalcLat = lat; recalcLng = lng;
   if (!markerArrow) {
     // Create an arrow-shaped marker for user position
     var el = document.createElement("div");
@@ -159,6 +162,8 @@ function nativeSearchOSM(query) {
 
 // ---- ROUTING (OSRM) ----
 function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
+  // Save destination for recalculation
+  _destLat = toLat; _destLon = toLng; _destName = name || "";
   // Remove old route
   clearRoute();
   clearDestination();
@@ -305,7 +310,44 @@ function clearDestination() {
 }
 
 function recalculateRoute() {
-  // Recalculate is handled by ObjC calling calculateRoute again
+  // Recalculate route from current position to saved destination
+  if (_destLat === null || _destLon === null) return;
+  clearRoute();
+  clearDestination();
+  var url = OSRM_URL + "/route/v1/driving/" + recalcLng + "," + recalcLat + ";" + _destLon + "," + _destLat + "?geometries=geojson&steps=true&overview=full&language=it";
+  return fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.routes || data.routes.length === 0) {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.error)
+          window.webkit.messageHandlers.error.postMessage("Nessun percorso trovato");
+        return null;
+      }
+      var route = data.routes[0];
+      navRoute = route.geometry;
+      navCoords = route.geometry.coordinates.slice();
+      navDistance = route.distance;
+      navETA = route.duration;
+      // Draw new route line
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: {type:"geojson",data:{type:"Feature",geometry:route.geometry}},
+        paint: {"line-color":"#4488ff","line-width":6,"line-opacity":0.8}
+      });
+      // Add destination marker
+      var el = document.createElement("div");
+      el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e74c3c;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)";
+      markerDest = new maplibregl.Marker({element:el,anchor:"center"})
+        .setLngLat([_destLon, _destLat])
+        .addTo(map);
+      // Fit bounds
+      var bounds = new maplibregl.LngLatBounds();
+      route.geometry.coordinates.forEach(function(c) { bounds.extend(c); });
+      map.fitBounds(bounds, {padding:80, pitch:50});
+      var result = JSON.stringify({distance:route.distance,duration:route.duration,name:_destName});
+      return result;
+    });
 }
 
 function snapToRoute(lat, lng) {
