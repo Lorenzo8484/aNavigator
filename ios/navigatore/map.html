@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body,#map{width:100%;height:100%;background:#111;overflow:hidden;font-family:-apple-system,Helvetica Neue,sans-serif}
+
+/* Search bar */
+#searchBar{position:absolute;top:60px;left:16px;right:16px;z-index:10;display:flex;gap:8px}
+#searchInput{flex:1;height:44px;border-radius:12px;border:none;padding:0 16px;font-size:16px;background:rgba(30,30,40,0.92);color:#fff;backdrop-filter:blur(10px)}
+#searchInput::placeholder{color:#888}
+#searchBtn{width:44px;height:44px;border-radius:12px;border:none;background:rgba(30,30,40,0.92);color:#fff;font-size:20px;cursor:pointer}
+
+/* Search results */
+#searchResults{position:absolute;top:112px;left:16px;right:16px;z-index:10;background:rgba(30,30,40,0.95);border-radius:12px;max-height:300px;overflow-y:auto;display:none;backdrop-filter:blur(10px)}
+#searchResults div{padding:14px 16px;color:#ccc;border-bottom:1px solid rgba(255,255,255,0.08);cursor:pointer}
+#searchResults div:last-child{border:none}
+#searchResults div:hover{background:rgba(255,255,255,0.1);color:#fff}
+
+/* Compass */
+#compass{position:absolute;bottom:140px;right:16px;z-index:10;width:44px;height:44px;border-radius:22px;background:rgba(30,30,40,0.9);border:2px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;color:#fff;backdrop-filter:blur(10px)}
+
+/* Position button */
+#posBtn{position:absolute;bottom:82px;right:16px;z-index:10;width:44px;height:44px;border-radius:22px;background:rgba(30,30,40,0.9);border:2px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;color:#fff;backdrop-filter:blur(10px)}
+
+/* Nav panel */
+#navPanel{position:absolute;bottom:0;left:0;right:0;z-index:10;background:rgba(20,20,30,0.95);border-radius:20px 20px 0 0;padding:16px 20px;padding-bottom:40px;display:none;backdrop-filter:blur(10px)}
+#navInstruction{color:#fff;font-size:18px;font-weight:600;margin-bottom:4px}
+#navDistance{color:#aaa;font-size:14px;margin-bottom:8px}
+#navETA{color:#888;font-size:13px}
+#navEndBtn{position:absolute;top:16px;right:16px;padding:8px 16px;border-radius:20px;border:none;background:#e74c3c;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+
+/* Search button indicator */
+.maplibregl-ctrl-attrib{display:none!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<!-- Search -->
+<div id="searchBar">
+<input id="searchInput" type="text" placeholder="Cerca destinazione..." autocomplete="off"/>
+<button id="searchBtn">🔍</button>
+</div>
+<div id="searchResults"></div>
+
+<!-- Controls -->
+<div id="compass" onclick="resetNorth()">🧭</div>
+<div id="posBtn" onclick="centerOnMe()">📍</div>
+
+<!-- Nav panel -->
+<div id="navPanel">
+<button id="navEndBtn" onclick="endNavigation()">✕</button>
+<div id="navInstruction">—</div>
+<div id="navDistance"></div>
+<div id="navETA"></div>
+</div>
+
+<script>
+// ===================================================================
+// CONFIG
+// ===================================================================
+const OSRM_URL = "https://router.project-osrm.org";
+const NOMINATIM_URL = "https://nominatim.openstreetmap.org";
+
+// ===================================================================
+// STATE
+// ===================================================================
+let userLat = 41.9028, userLng = 12.4964, userCourse = 0;
+let userHeading = 0;
+let isNavigating = false;
+let navCoords = [];
+let navInstruction = "";
+let navDistanceRemaining = 0;
+let navETA = 0;
+let watchId = null;
+let markerEl = null;
+let routeLine = null;
+let destMarker = null;
+let animFrame = null;
+
+// ===================================================================
+// STILE MAPLIBRE — scuro, 45° pitch, no edifici 3D
+// ===================================================================
+const style = {
+  version: 8,
+  name: "Navigatore Dark",
+  sources: {
+    openmaptiles: {
+      type: "vector",
+      tiles: ["https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf"],
+      maxzoom: 14,
+      attribution: "© OpenStreetMap, OpenFreeMap"
+    }
+  },
+  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+  layers: [
+    {id:"background",type:"background",paint:{"background-color":"#14141e"}},
+    {id:"landuse",type:"fill",source:"openmaptiles","source-layer":"landuse",paint:{"fill-color":"#1a1a28"}},
+    {id:"water",type:"fill",source:"openmaptiles","source-layer":"water",paint:{"fill-color":"#1a2744"}},
+    {id:"waterway",type:"line",source:"openmaptiles","source-layer":"waterway",paint:{"line-color":"#1a2744","line-width":1.5}},
+    {id:"building",type:"fill",source:"openmaptiles","source-layer":"building",paint:{"fill-color":"#222236"}},
+    {id:"road_outline",type:"line",source:"openmaptiles","source-layer":"transportation",filter:["!in","class","path","track"],paint:{"line-color":"#333348","line-width":["interpolate",["linear"],["zoom"],13,2,18,6]}},
+    {id:"road_fill",type:"line",source:"openmaptiles","source-layer":"transportation",filter:["!in","class","path","track"],paint:{"line-color":["case",["==",["get","class"],"motorway"],"#e88b4a",["==",["get","class"],"trunk"],"#d98c4a",["==",["get","class"],"primary"],"#d9a84a",["==",["get","class"],"secondary"],"#d9c84a","#666680"],"line-width":["interpolate",["linear"],["zoom"],13,["case",["==",["get","class"],"motorway"],4,3],18,["case",["==",["get","class"],"motorway"],14,["==",["get","class"],"trunk"],11,9]]}},
+    {id:"road_label",type:"symbol",source:"openmaptiles","source-layer":"transportation_name",filter:["has","name"],layout:{"text-field":"{name}","text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],13,9,18,13]},paint:{"text-color":"#999","text-halo-color":"#111","text-halo-width":1.5}},
+    {id:"place_label",type:"symbol",source:"openmaptiles","source-layer":"place",filter:["has","name"],layout:{"text-field":"{name}","text-font":["Noto Sans Regular"],"text-size":["interpolate",["linear"],["zoom"],12,10,18,16]},paint:{"text-color":"#aaa","text-halo-color":"#14141e","text-halo-width":2}}
+  ]
+};
+
+// ===================================================================
+// INIZIALIZZA MAPPA
+// ===================================================================
+const map = new maplibregl.Map({
+  container: "map",
+  style: style,
+  center: [userLng, userLat],
+  zoom: 15,
+  pitch: 50,
+  bearing: 0,
+  attributionControl: false
+});
+
+// Stop building label
+map.on("style.load", () => {
+  // Hide extra layers
+  const hide = ["poi","poi_label","airport_label","housenumber","housenumber_label"];
+  hide.forEach(id => {
+    try { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none"); } catch(e) {}
+  });
+});
+
+// ===================================================================
+// POSIZIONE UTENTE — marker custom
+// ===================================================================
+function createUserMarker() {
+  markerEl = document.createElement("div");
+  markerEl.style.cssText = "width:32px;height:32px;border-radius:50%;background:#4488ff;border:3px solid #fff;box-shadow:0 2px 12px rgba(0,0,0,0.5);position:relative;transform:rotate(var(--r,0deg))";
+  // Freccia direzione
+  let arrow = document.createElement("div");
+  arrow.style.cssText = "position:absolute;top:-8px;left:50%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid #4488ff;transform:translateX(-50%)";
+  markerEl.appendChild(arrow);
+  new maplibregl.Marker({element:markerEl,anchor:"center"})
+    .setLngLat([userLng, userLat])
+    .addTo(map);
+}
+
+function updatePosition(lat, lng, course) {
+  userLat = lat; userLng = lng; userCourse = course;
+  if (markerEl) {
+    markerEl.style.setProperty("--r", course + "deg");
+    // Move marker
+  }
+  // Update server
+  if (isNavigating && navCoords.length > 0) {
+    snapToRoute(lat, lng);
+  }
+}
+// Called from ObjC:
+// updatePosition(lat, lng, course)
+
+function updateHeading(heading) {
+  userHeading = heading;
+  document.getElementById("compass").style.transform = "rotate(" + (-heading) + "deg)";
+}
+
+function centerOnMe() {
+  map.flyTo({center:[userLng, userLat], zoom:16, pitch:50});
+}
+
+function resetNorth() {
+  map.flyTo({bearing:0, pitch:50});
+}
+
+// ===================================================================
+// RICERCA (Nominatim)
+// ===================================================================
+document.getElementById("searchBtn").onclick = doSearch;
+document.getElementById("searchInput").onkeydown = function(e) {
+  if (e.key === "Enter") doSearch();
+};
+
+function doSearch() {
+  const q = document.getElementById("searchInput").value.trim();
+  if (!q) return;
+  const url = NOMINATIM_URL + "/search?format=jsonv2&q=" + encodeURIComponent(q) + "&limit=10&addressdetails=1";
+  fetch(url)
+    .then(r => r.json())
+    .then(results => {
+      const container = document.getElementById("searchResults");
+      container.innerHTML = "";
+      if (results.length === 0) {
+        container.innerHTML = "<div style='color:#888'>Nessun risultato</div>";
+        container.style.display = "block";
+        return;
+      }
+      results.forEach(r => {
+        const div = document.createElement("div");
+        div.textContent = r.display_name || r.name || "?";
+        div.onclick = function() { selectResult(r); };
+        container.appendChild(div);
+      });
+      container.style.display = "block";
+    });
+}
+
+function selectResult(r) {
+  document.getElementById("searchResults").style.display = "none";
+  document.getElementById("searchInput").value = r.display_name || r.name || "";
+  const lat = parseFloat(r.lat);
+  const lon = parseFloat(r.lon);
+  map.flyTo({center:[lon, lat], zoom:16, pitch:50});
+  if (destMarker) destMarker.remove();
+  destMarker = new maplibregl.Marker({color:"#e74c3c"})
+    .setLngLat([lon, lat])
+    .addTo(map);
+  // Calculate route
+  calculateRoute(userLat, userLng, lat, lon, r.display_name || r.name);
+}
+
+// Close search results on map click
+map.on("click", () => {
+  document.getElementById("searchResults").style.display = "none";
+});
+
+// ===================================================================
+// ROUTING (OSRM)
+// ===================================================================
+function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
+  if (routeLine) { routeLine.remove(); routeLine = null; }
+  
+  const url = OSRM_URL + `/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?geometries=geojson&steps=true&overview=full&language=it`;
+  
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.routes || data.routes.length === 0) return;
+      const route = data.routes[0];
+      navCoords = route.geometry.coordinates; // [lng, lat]
+      
+      // Draw route line
+      routeLine = new maplibregl.LineLayer({
+        id: "route-line",
+        type: "line",
+        source: {
+          type: "geojson",
+          data: {type:"Feature",geometry:route.geometry}
+        },
+        paint: {"line-color":"#4488ff","line-width":6,"line-opacity":0.8}
+      });
+      // Add using addLayer
+      // Actually use the standard approach
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: {type:"geojson",data:{type:"Feature",geometry:route.geometry}},
+        paint: {"line-color":"#4488ff","line-width":6,"line-opacity":0.8}
+      });
+      
+      startNavigation(route, name);
+    });
+}
+
+function startNavigation(route, name) {
+  isNavigating = true;
+  document.getElementById("navPanel").style.display = "block";
+  document.getElementById("navInstruction").textContent = "Verso " + (name || "destinazione");
+  document.getElementById("navDistance").textContent = formatDistance(route.distance);
+  document.getElementById("navETA").textContent = formatDuration(route.duration);
+  
+  // Start watching position for turn-by-turn
+  navWatch();
+}
+
+function navWatch() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  function tick() {
+    if (!isNavigating) return;
+    if (navCoords.length > 1) {
+      let closest = navCoords[0];
+      let minDist = Infinity;
+      for (const c of navCoords) {
+        const d = distance(userLat, userLng, c[1], c[0]);
+        if (d < minDist) { minDist = d; closest = c; }
+      }
+      // Remove passed points
+      let idx = navCoords.findIndex(c => c[0] === closest[0] && c[1] === closest[1]);
+      if (idx > 0) navCoords = navCoords.slice(idx);
+      if (navCoords.length > 1) {
+        const remaining = routeLength(navCoords);
+        document.getElementById("navDistance").textContent = formatDistance(remaining);
+        // Next instruction from remaining
+        updateInstruction(navCoords);
+      }
+    }
+    animFrame = requestAnimationFrame(tick);
+  }
+  animFrame = requestAnimationFrame(tick);
+}
+
+function snapToRoute(lat, lng) {
+  // Find closest point on route
+  if (!navCoords || navCoords.length < 2) return;
+  let closest = navCoords[0];
+  let minDist = Infinity;
+  for (const c of navCoords) {
+    const d = distance(lat, lng, c[1], c[0]);
+    if (d < minDist) { minDist = d; closest = c; }
+  }
+  if (minDist < 50) {
+    let idx = navCoords.findIndex(c => c[0] === closest[0] && c[1] === closest[1]);
+    if (idx > 3) navCoords = navCoords.slice(idx);
+  }
+}
+
+function endNavigation() {
+  isNavigating = false;
+  document.getElementById("navPanel").style.display = "none";
+  if (animFrame) cancelAnimationFrame(animFrame);
+  try { map.removeLayer("route-line"); map.removeSource("route-line"); } catch(e) {}
+  if (destMarker) { destMarker.remove(); destMarker = null; }
+  if (routeLine) { routeLine = null; }
+  navCoords = [];
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navigationEnd) {
+    window.webkit.messageHandlers.navigationEnd.postMessage("");
+  }
+}
+
+function updateInstruction(coords) {
+  if (coords.length < 3) return;
+  // Simple: first 2 segments give bearing change
+  const bearing1 = bearing(coords[0][1], coords[0][0], coords[1][1], coords[1][0]);
+  const bearing2 = coords.length > 2 ? bearing(coords[1][1], coords[1][0], coords[2][1], coords[2][0]) : bearing1;
+  let turn = bearing2 - bearing1;
+  if (turn > 180) turn -= 360;
+  if (turn < -180) turn += 360;
+  
+  let text = "Prosegui dritto";
+  if (turn > 20 && turn <= 60) text = "Svolta leggermente a destra";
+  else if (turn > 60 && turn <= 120) text = "Svolta a destra";
+  else if (turn > 120) text = "Inversione a U";
+  else if (turn < -20 && turn >= -60) text = "Svolta leggermente a sinistra";
+  else if (turn < -60 && turn >= -120) text = "Svolta a sinistra";
+  else if (turn < -120) text = "Inversione a U";
+  
+  if (text !== navInstruction) {
+    navInstruction = text;
+    document.getElementById("navInstruction").textContent = text;
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.speak) {
+      window.webkit.messageHandlers.speak.postMessage(text);
+    }
+  }
+}
+
+// ===================================================================
+// HELPERS
+// ===================================================================
+function formatDistance(m) {
+  if (m < 1000) return Math.round(m) + " m";
+  return (m/1000).toFixed(1) + " km";
+}
+
+function formatDuration(s) {
+  if (s < 60) return Math.round(s) + " s";
+  if (s < 3600) return Math.floor(s/60) + " min";
+  return Math.floor(s/3600) + " h " + Math.floor((s%3600)/60) + " min";
+}
+
+function distance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearing(lat1, lng1, lat2, lng2) {
+  const dLng = (lng2-lng1)*Math.PI/180;
+  const y = Math.sin(dLng)*Math.cos(lat2*Math.PI/180);
+  const x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dLng);
+  return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+}
+
+function routeLength(coords) {
+  let d = 0;
+  for (let i = 1; i < coords.length; i++) {
+    d += distance(coords[i-1][1], coords[i-1][0], coords[i][1], coords[i][0]);
+  }
+  return d;
+}
+
+// ===================================================================
+// INIT
+// ===================================================================
+map.on("load", () => {
+  createUserMarker();
+  // Center on better default (Roma)
+  map.flyTo({center:[12.4964, 41.9028], zoom:6, pitch:50});
+});
+</script>
+</body>
+</html>

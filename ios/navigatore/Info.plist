@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>it</string>
     <key>CFBundleDisplayName</key>
-    <string>scenekit-italy</string>
+    <string>Navigatore</string>
     <key>CFBundleExecutable</key>
-    <string>scenekit-italy</string>
+    <string>Navigatore</string>
     <key>CFBundleIdentifier</key>
-    <string>com.lorenzo.scenekit-italy</string>
+    <string>com.lorenzo.navigatore</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>scenekit-italy</string>
+    <string>Navigatore</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -23,9 +23,14 @@
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>scenekit-italy necessita della tua posizione per mostrare la mappa 3D</string>
+    <string>Navigatore usa la tua posizione per mostrarti sulla mappa</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>scenekit-italy necessita della tua posizione per mostrare la mappa 3D</string>
+    <string>Navigatore usa la tua posizione per mostrarti sulla mappa</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>
@@ -38,8 +43,10 @@
     </array>
     <key>UIApplicationSceneManifest</key>
     <dict>
-        <key>UIApplicationSupportsMultipleScenes</key>
+        <key>UIApplicationSupportsMultipleScreens</key>
         <false/>
     </dict>
+    <key>UILaunchScreen</key>
+    <dict/>
 </dict>
 </plist>
