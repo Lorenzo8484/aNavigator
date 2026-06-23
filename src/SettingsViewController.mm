@@ -50,7 +50,8 @@ static NSArray<SettingsRow*>* sectionRows(SettingsSection s) {
             [SettingsRow chevron:@"Tipo mappa" v:(st.mapType==0?LOC(@"Standard"):st.mapType==1?LOC(@"Satellite"):LOC(@"Hybrid"))],
             [SettingsRow chevron:@"Vista 3D predefinita" v:(st.view3DDefault?LOC(@"Attiva"):LOC(@"Disattiva"))],
             [SettingsRow toggle:@"Mostra edifici 3D" on:st.show3DBuildings],[SettingsRow toggle:@"Mostra traffico" on:st.showTraffic],
-            [SettingsRow toggle:@"Fermate autobus" on:st.showBusStops],[SettingsRow toggle:@"Modalità notturna" on:st.nightMode],
+            [SettingsRow toggle:@"Fermate autobus" on:st.showBusStops],            [SettingsRow toggle:@"Modalità notturna" on:st.nightMode],
+            [SettingsRow slider:@"Luminosità mappa" val:st.mapBrightness],
             [SettingsRow toggle:@"Zoom automatico" on:st.autoZoom],[SettingsRow chevron:@"Orientamento mappa" v:LOC(st.mapOrientation)],
             [SettingsRow toggle:@"Mostra bussola" on:st.showCompass],[SettingsRow toggle:@"Mostra scala" on:st.showScale],[SettingsRow chevron:@"Etichette POI" v:LOC(st.poiLabels)]];
         case 2: return @[
