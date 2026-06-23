@@ -157,16 +157,25 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
     }
     offset += 4;
 
-    // Version (uint32)
-    if (offset + 4 > length) return NO;
-    uint32_t version = *(const uint32_t *)(bytes + offset);
-    offset += 4;
-    (void)version; // unused for now
+    // Version (uint16 — preprocessor uses H format)
+    if (offset + 2 > length) return NO;
+    uint16_t version = *(const uint16_t *)(bytes + offset);
+    offset += 2;
+    (void)version;
 
     // Num buildings (uint32)
     if (offset + 4 > length) return NO;
     uint32_t numBuildings = *(const uint32_t *)(bytes + offset);
     offset += 4;
+
+    // Num roads (uint32)
+    if (offset + 4 > length) return NO;
+    uint32_t numRoads = *(const uint32_t *)(bytes + offset);
+    offset += 4;
+
+    // Has terrain (uint8) — skip
+    if (offset + 1 > length) return NO;
+    offset += 1;
 
     // Parse buildings
     for (uint32_t i = 0; i < numBuildings; i++) {
@@ -229,12 +238,7 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         tileData->buildings.push_back(b);
     }
 
-    // Num roads (uint32)
-    if (offset + 4 > length) return NO;
-    uint32_t numRoads = *(const uint32_t *)(bytes + offset);
-    offset += 4;
-
-    // Parse roads
+    // Parse roads (numRoads already parsed from header)
     for (uint32_t i = 0; i < numRoads; i++) {
         RoadData r;
         memset(&r, 0, sizeof(r));
