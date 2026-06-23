@@ -106,20 +106,17 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         return nil;
     }
 
-    // Create parent node for this tile
+    // Create parent node for this tile — ALL tiles at (0,0,0)
+    // because vertices in .stile are in ABSOLUTE scene coordinates
+    // (converted from lon/lat/height to east/up/north meters)
     SCNNode *tileNode = [SCNNode node];
     tileNode.name = [NSString stringWithFormat:@"tile_%@", key];
-
-    // Compute tile center in scene coordinates
-    double tileCenterLat = (floor(lat / kTileSizeDeg) + 0.5) * kTileSizeDeg;
-    double tileCenterLon = (floor(lon / kTileSizeDeg) + 0.5) * kTileSizeDeg;
-    SCNVector3 tileSceneCenter = SceneCoord(tileCenterLat, tileCenterLon, 0);
-    tileNode.position = tileSceneCenter;
+    tileNode.position = SCNVector3Make(0, 0, 0);
 
     // Add buildings
     for (size_t i = 0; i < tileData.buildings.size(); i++) {
         BuildingData &b = tileData.buildings[i];
-        SCNNode *buildingNode = [self createBuildingNode:&b tileCenter:tileSceneCenter];
+        SCNNode *buildingNode = [self createBuildingNode:&b tileCenter:SCNVector3Make(0, 0, 0)];
         if (buildingNode) {
             [tileNode addChildNode:buildingNode];
         }
@@ -128,7 +125,7 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
     // Add roads
     for (size_t i = 0; i < tileData.roads.size(); i++) {
         RoadData &r = tileData.roads[i];
-        SCNNode *roadNode = [self createRoadNode:&r tileCenter:tileSceneCenter];
+        SCNNode *roadNode = [self createRoadNode:&r tileCenter:SCNVector3Make(0, 0, 0)];
         if (roadNode) {
             [tileNode addChildNode:roadNode];
         }
@@ -320,22 +317,29 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
 - (SCNNode *)createBuildingNode:(BuildingData *)b tileCenter:(SCNVector3)tileCenter {
     if (b->numVertices < 3 || b->numIndices < 3) return nil;
 
-    // Create vertex source
+    // Create vertex source — .stile stores (lon, lat, height)
+    // Convert to SceneKit (east, up, north) = (x, y, z) in meters from Bologna origin
     SCNVector3 *verts = (SCNVector3 *)malloc((size_t)b->numVertices * sizeof(SCNVector3));
     for (int i = 0; i < b->numVertices; i++) {
-        verts[i] = SCNVector3Make(b->vertices[i * 3],
-                                  b->vertices[i * 3 + 1],
-                                  b->vertices[i * 3 + 2]);
+        float lon = b->vertices[i * 3];
+        float lat = b->vertices[i * 3 + 1];
+        float height = b->vertices[i * 3 + 2];
+        double latRad = lat * M_PI / 180.0;
+        float x = (float)((lon - kOriginLon) * kMetersPerDegreeLat * cos(latRad));
+        float y = height; // height is already in meters
+        float z = (float)((lat - kOriginLat) * kMetersPerDegreeLat);
+        verts[i] = SCNVector3Make(x, y, z);
     }
     SCNGeometrySource *vertexSource = [SCNGeometrySource geometrySourceWithVertices:verts
                                                                               count:b->numVertices];
 
-    // Create normal source
+    // Create normal source — .stile normals are (nx_lon, ny_lat, nz_height)
+    // Convert to SceneKit: (nx_lon, nz_height, ny_lat) → (x_east, y_up, z_north)
     SCNVector3 *norms = (SCNVector3 *)malloc((size_t)b->numVertices * sizeof(SCNVector3));
     for (int i = 0; i < b->numVertices; i++) {
-        norms[i] = SCNVector3Make(b->normals[i * 3],
-                                  b->normals[i * 3 + 1],
-                                  b->normals[i * 3 + 2]);
+        norms[i] = SCNVector3Make(b->normals[i * 3],       // nx → x (east/lon direction)
+                                  b->normals[i * 3 + 2],   // nz → y (up/height direction)
+                                  b->normals[i * 3 + 1]);  // ny → z (north/lat direction)
     }
     SCNGeometrySource *normalSource = [SCNGeometrySource geometrySourceWithNormals:norms
                                                                              count:b->numVertices];
@@ -375,22 +379,28 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
 - (SCNNode *)createRoadNode:(RoadData *)r tileCenter:(SCNVector3)tileCenter {
     if (r->numVertices < 3 || r->numIndices < 3) return nil;
 
-    // Create vertex source
+    // Create vertex source — .stile stores (lon, lat, height)
+    // Convert to SceneKit (east, up, north) = (x, y, z) in meters from Bologna origin
     SCNVector3 *verts = (SCNVector3 *)malloc((size_t)r->numVertices * sizeof(SCNVector3));
     for (int i = 0; i < r->numVertices; i++) {
-        verts[i] = SCNVector3Make(r->vertices[i * 3],
-                                  r->vertices[i * 3 + 1],
-                                  r->vertices[i * 3 + 2]);
+        float lon = r->vertices[i * 3];
+        float lat = r->vertices[i * 3 + 1];
+        float height = r->vertices[i * 3 + 2];
+        double latRad = lat * M_PI / 180.0;
+        float x = (float)((lon - kOriginLon) * kMetersPerDegreeLat * cos(latRad));
+        float y = height;
+        float z = (float)((lat - kOriginLat) * kMetersPerDegreeLat);
+        verts[i] = SCNVector3Make(x, y, z);
     }
     SCNGeometrySource *vertexSource = [SCNGeometrySource geometrySourceWithVertices:verts
                                                                               count:r->numVertices];
 
-    // Create normal source
+    // Create normal source — .stile normals are (nx_lon, ny_lat, nz_height)
     SCNVector3 *norms = (SCNVector3 *)malloc((size_t)r->numVertices * sizeof(SCNVector3));
     for (int i = 0; i < r->numVertices; i++) {
-        norms[i] = SCNVector3Make(r->normals[i * 3],
-                                  r->normals[i * 3 + 1],
-                                  r->normals[i * 3 + 2]);
+        norms[i] = SCNVector3Make(r->normals[i * 3],       // nx → x (east)
+                                  r->normals[i * 3 + 2],   // nz → y (up)
+                                  r->normals[i * 3 + 1]);  // ny → z (north)
     }
     SCNGeometrySource *normalSource = [SCNGeometrySource geometrySourceWithNormals:norms
                                                                              count:r->numVertices];
@@ -444,20 +454,24 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
 // ---------------------------------------------------------------------------
 
 - (void)updateForLocation:(double)lat lon:(double)lon {
-    int centerTileLat = (int)floor(lat / kTileSizeDeg);
-    int centerTileLon = (int)floor(lon / kTileSizeDeg);
-
-    // Tile degrees for the center tile
-    double centerLatDeg = centerTileLat * kTileSizeDeg;
-    double centerLonDeg = centerTileLon * kTileSizeDeg;
+    // Use centidegree integer math to avoid FP precision issues
+    int tileSizeInt = (int)(kTileSizeDeg * 100.0 + 0.5); // 1 centidegree
+    int centerTileLatCD = (int)(lat * 100.0 + 0.0001); // centidegrees with epsilon
+    int centerTileLonCD = (int)(lon * 100.0 + 0.0001);
+    // Floor to tile grid
+    centerTileLatCD = (centerTileLatCD / tileSizeInt) * tileSizeInt;
+    centerTileLonCD = (centerTileLonCD / tileSizeInt) * tileSizeInt;
 
     // Load tiles within 3-tile radius
     NSMutableSet<NSString *> *neededKeys = [NSMutableSet set];
     for (int dy = -3; dy <= 3; dy++) {
         for (int dx = -3; dx <= 3; dx++) {
-            double tileLat = centerLatDeg + (dy + 0.5) * kTileSizeDeg;
-            double tileLon = centerLonDeg + (dx + 0.5) * kTileSizeDeg;
-            NSString *key = TileKey(tileLat, tileLon);
+            int tileLatCD = centerTileLatCD + dy * tileSizeInt;
+            int tileLonCD = centerTileLonCD + dx * tileSizeInt;
+            // Format as +LL.LL_+LL.LL to match TileKey
+            NSString *key = [NSString stringWithFormat:@"%c%d.%02d_%c%d.%02d",
+                             tileLonCD >= 0 ? '+' : '-', abs(tileLonCD) / 100, abs(tileLonCD) % 100,
+                             tileLatCD >= 0 ? '+' : '-', abs(tileLatCD) / 100, abs(tileLatCD) % 100];
             [neededKeys addObject:key];
         }
     }
@@ -465,16 +479,29 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
     // Unload tiles outside 4-tile radius
     int unloadRadius = 4;
     NSMutableSet<NSString *> *toUnload = [NSMutableSet set];
+    int unloadRadiusCD = unloadRadius * tileSizeInt;
     for (NSString *key in self.loadedTiles) {
-        // Parse key to get tile coords
-        NSScanner *scanner = [NSScanner scannerWithString:key];
-        int lonTile, latTile;
-        [scanner scanInt:&lonTile];
-        [scanner scanString:@"_" intoString:nil];
-        [scanner scanInt:&latTile];
+        // Parse key format "+LL.LL_+LL.LL" to centidegrees
+        // Example: "+11.34_+44.49" → lonCD=1134, latCD=4449
+        int lonCD = 0, latCD = 0;
+        int intPart = 0, fracPart = 0;
+        char sign = '+';
+        NSScanner *sc = [NSScanner scannerWithString:key];
+        [sc scanCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"+-"] intoString:NULL];
+        if ([sc scanInt:&intPart] && [sc scanString:@"." intoString:NULL] && [sc scanInt:&fracPart]) {
+            lonCD = intPart * 100 + fracPart;
+            if (sign == '-') lonCD = -lonCD;
+        }
+        [sc scanString:@"_" intoString:NULL];
+        sign = '+';
+        [sc scanCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"+-"] intoString:NULL];
+        if ([sc scanInt:&intPart] && [sc scanString:@"." intoString:NULL] && [sc scanInt:&fracPart]) {
+            latCD = intPart * 100 + fracPart;
+            if (sign == '-') latCD = -latCD;
+        }
 
-        if (abs(lonTile - centerTileLon) > unloadRadius ||
-            abs(latTile - centerTileLat) > unloadRadius) {
+        if (abs(lonCD - centerTileLonCD) > unloadRadiusCD ||
+            abs(latCD - centerTileLatCD) > unloadRadiusCD) {
             [toUnload addObject:key];
         }
     }
@@ -490,16 +517,28 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
     for (NSString *key in neededKeys) {
         if (self.loadedTiles[key]) continue;
 
-        // Parse key
-        NSScanner *scanner = [NSScanner scannerWithString:key];
-        int lonTile, latTile;
-        [scanner scanInt:&lonTile];
-        [scanner scanString:@"_" intoString:nil];
-        [scanner scanInt:&latTile];
+        // Parse key to centidegrees: "+LL.LL_+LL.LL" → (lonCD, latCD)
+        int lonCD = 0, latCD = 0;
+        int intPart = 0, fracPart = 0;
+        char sign = '+';
+        NSScanner *sc = [NSScanner scannerWithString:key];
+        [sc scanCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"+-"] intoString:NULL];
+        if ([sc scanInt:&intPart] && [sc scanString:@"." intoString:NULL] && [sc scanInt:&fracPart]) {
+            lonCD = intPart * 100 + fracPart;
+            if (sign == '-') lonCD = -lonCD;
+        }
+        [sc scanString:@"_" intoString:NULL];
+        sign = '+';
+        [sc scanCharactersFromSet:[NSCharacterSet characterSetWithCharactersInString:@"+-"] intoString:NULL];
+        if ([sc scanInt:&intPart] && [sc scanString:@"." intoString:NULL] && [sc scanInt:&fracPart]) {
+            latCD = intPart * 100 + fracPart;
+            if (sign == '-') latCD = -latCD;
+        }
 
-        double tileLat = latTile * kTileSizeDeg + kTileSizeDeg * 0.5;
-        double tileLon = lonTile * kTileSizeDeg + kTileSizeDeg * 0.5;
-
+        // Convert centidegrees back to double for loadTileAtLat:lon:
+        // Use safe division (divide by 100.0, not by 0.01) to avoid FP drift
+        double tileLat = (double)latCD / 100.0;
+        double tileLon = (double)lonCD / 100.0;
         [self loadTileAtLat:tileLat lon:tileLon];
     }
 }
