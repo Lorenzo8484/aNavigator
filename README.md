@@ -1,79 +1,61 @@
 # aNavigator 🗺️
 
-**Navigatore 2.5D per iOS** — Mappa con tilt, routing, e UI completa. MapLibre GL JS + OpenFreeMap vector tiles.
+**Navigatore per autisti** — autobus, auto e camion. Italia.
 
-Zero API key. 100% gratuito. Build in WSL con clang-19.
-
-## Screenshot
-
-```
-         ╔═══════════════════════╗
-         ║     🧭  🌍  ⚙️       ║
-         ║     [  Cerca... ]    ║
-         ║                      ║
-         ║    ┌──────────────┐  ║
-         ║    │  🛣️ 2.5D Map │  ║
-         ║    │  pitch 50°   │  ║
-         ║    └──────────────┘  ║
-         ║                      ║
-         ║  📍   🚌   🔧      ║
-         ╚═══════════════════════╝
-```
+Mappa 2.5D con MapLibre GL JS + OpenFreeMap vector tiles.
+Routing OSRM, fermate autobus Overpass, turn-by-turn vocale.
+Zero API key. 100% gratuito.
 
 ## Funzionalità
 
-- **Mappa 2.5D** con pitch 50°, rotazione
-- **Ricerca** indirizzi (Nominatim)
-- **Routing** turn-by-turn (OSRM)
-- **Navigazione vocale** (AVSpeechSynthesizer)
-- **Impostazioni** camera, voce, tema, testo
-- **Fermate autobus** da Overpass API
-- **Bussola** + **Tracking** posizione
-- **Log** debugging
-- **Niente edifici 3D** — stile pulito
+| | |
+|---|---|
+| 🗺️ **Mappa 2.5D** | Pitch 50°, rotazione, strade colorate |
+| 🔍 **Ricerca** | Indirizzi e luoghi (Nominatim) |
+| 🚗 **Routing** | Turn-by-turn (OSRM) |
+| 🗣️ **Navigazione vocale** | AVSpeechSynthesizer, lingua italiana |
+| 🚌 **Fermate autobus** | Da Overpass API in tempo reale |
+| 🧭 **Bussola** | Orientamento magnetico |
+| 📍 **Tracking** | Posizione GPS con heading |
+| ⚙️ **Impostazioni** | Camera, voce, tema, testo, bussola |
+| 🪟 **Finestra autobus** | Info fermate e modalità autista |
+| 📋 **Log** | Debugging in tempo reale |
+
+## Tecnologie
+
+| Componente | Cosa usa |
+|---|---|
+| **Mappa** | [MapLibre GL JS](https://maplibre.org) + [OpenFreeMap](https://openfreemap.org) |
+| **Tile** | Vector tiles `.pbf` — gratis, niente API key |
+| **Ricerca** | [Nominatim](https://nominatim.org) — OpenStreetMap |
+| **Routing** | [OSRM](https://project-osrm.org) |
+| **Fermate bus** | [Overpass API](https://overpass-api.de) |
+| **Voce** | AVSpeechSynthesizer |
+| **Build** | clang-19 + ld64.lld-19 + iPhoneOS16.5.sdk (WSL) |
 
 ## Architettura
 
 ```
 aNavigator/
 ├── ios/
-│   ├── anavigatore/              # Sorgenti iOS
+│   ├── anavigatore/                 # Sorgenti iOS
 │   │   ├── AppDelegate.h / .m
-│   │   ├── MapViewController.h / .mm   # Controller mappa
+│   │   ├── MapViewController.h / .mm   # Controller mappa (1550 righe)
 │   │   ├── SettingsViewController.h / .mm
 │   │   ├── BusViewController.h / .mm
 │   │   ├── SettingsStore.h / .mm
 │   │   ├── LocalizationManager.h / .mm
 │   │   ├── main.m
 │   │   ├── Info.plist
-│   │   ├── map.html               # MapLibre GL JS
-│   │   ├── build_ipa.sh
-│   │   └── assets/                # 12 file (bus 3D, arrow, compass)
-│   └── build/                     # IPA output
-├── backup/
-│   └── v1.0/                      # File per ricompilazione
+│   │   ├── map.html                  # MapLibre GL JS — 450 righe
+│   │   └── assets/                   # Bus 3D, freccia, bussola
+│   ├── build/                        # IPA output
+│   └── build_ipa.sh                  # Script compilazione
+├── backup/                           # Backup di ogni versione
+│   └── v1.0/                         # 28 file per ricompilare
 ├── README.md
-└── LICENSE.md
+└── LICENSE
 ```
-
-## Tecnologie
-
-| Componente | Cosa usa |
-|------------|----------|
-| **Mappa** | [MapLibre GL JS](https://maplibre.org) + [OpenFreeMap](https://openfreemap.org) |
-| **Tile** | Vector tiles `.pbf` (gratis, no API key) |
-| **Ricerca** | [Nominatim](https://nominatim.org) (OpenStreetMap) |
-| **Routing** | [OSRM](https://project-osrm.org) |
-| **Autobus** | [Overpass API](https://overpass-api.de) |
-| **Voce** | AVSpeechSynthesizer |
-| **Build** | clang-19 + ld64.lld-19 + iPhoneOS16.5.sdk |
-
-## Requisiti Build
-
-- Ubuntu / WSL
-- `clang-19`, `ld64.lld-19`
-- `iPhoneOS16.5.sdk` in `/home/alina/sdk/`
-- `zip` o Python 3.x
 
 ## Build
 
@@ -84,6 +66,17 @@ cd ios
 
 Output: `ios/build/aNavigator_v1.0.ipa`
 
-## Licenza
+## Requisiti Build
 
-MIT — Copyright 2026 Lorenzo
+- Ubuntu / WSL
+- clang-19, ld64.lld-19
+- iPhoneOS16.5.sdk in `/home/alina/sdk/`
+- Python 3.x (per creare IPA)
+
+## Download
+
+Scarica l'ultima IPA da [GitHub Releases](https://github.com/Lorenzo8484/aNavigator/releases).
+
+---
+
+*Italy-first navigation. Built for bus drivers, car drivers, and truck drivers.*
