@@ -71,12 +71,12 @@
     double r = self.altitude;
 
     // In SceneKit: y is up, x is right, z is forward
-    // Heading 0 = looking north (negative z direction in SceneKit)
-    // Let's use: x = r * sin(phi) * sin(theta), y = r * cos(phi), z = r * sin(phi) * cos(theta)
-    // Where theta=0 means looking along -z (north)
+    // Heading 0 = looking north (+Z in our coord system where lat→Z)
+    // Camera must be at SOUTH of target to look north
+    // Negate z so: heading=0 → camera at -Z → looking toward +Z (north/building
     double x = r * sin(phi) * sin(theta);
     double y = r * cos(phi);
-    double z = r * sin(phi) * cos(theta);
+    double z = -r * sin(phi) * cos(theta); // negate: heading 0 → look north (+Z)
 
     SCNVector3 cameraPos = SCNVector3Make(
         self.target.x + (float)x,
