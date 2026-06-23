@@ -152,10 +152,24 @@ function setMapType(type) {
     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
   ];
+  var url = urls[type] || urls[0];
   try {
-    map.getSource('carto').setTiles([urls[type] || urls[0]]);
+    var src = map.getSource('carto');
+    if (src && typeof src.setTiles === 'function') {
+      src.setTiles([url]);
+    } else {
+      throw new Error('no setTiles');
+    }
   } catch(e) {
-    console.error("setTiles fallback:", e);
+    // Fallback: remove + add source (funziona sempre)
+    try { map.removeLayer('carto-layer'); } catch(e2) {}
+    try { map.removeSource('carto'); } catch(e2) {}
+    map.addSource('carto', { type: 'raster', tiles: [url], tileSize: 256 });
+    map.addLayer({ id: 'carto-layer', type: 'raster', source: 'carto' });
+  }
+  // Re-apply brightness after tile change
+  if (window._lastBrightness !== undefined) {
+    document.getElementById("map").style.filter = "brightness(" + window._lastBrightness + ")";
   }
 }
 
