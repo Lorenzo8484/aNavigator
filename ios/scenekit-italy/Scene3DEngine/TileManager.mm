@@ -228,12 +228,12 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         memcpy(b.indices, bytes + offset, idxSize);
         offset += idxSize;
 
-        // colorR, colorG, colorB (float each)
-        if (offset + 12 > length) return NO;
-        b.color[0] = *(const float *)(bytes + offset);
-        b.color[1] = *(const float *)(bytes + offset + 4);
-        b.color[2] = *(const float *)(bytes + offset + 8);
-        offset += 12;
+        // colorR, colorG, colorB (uint8 each + 1 padding byte — stored as BBBx)
+        if (offset + 4 > length) return NO;
+        b.color[0] = (float)bytes[offset] / 255.0f;
+        b.color[1] = (float)bytes[offset + 1] / 255.0f;
+        b.color[2] = (float)bytes[offset + 2] / 255.0f;
+        offset += 4;
 
         tileData->buildings.push_back(b);
     }
@@ -242,6 +242,17 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
     for (uint32_t i = 0; i < numRoads; i++) {
         RoadData r;
         memset(&r, 0, sizeof(r));
+
+        // Road block format (from preprocessor):
+        //   centerLat, centerLon (2 floats = 8 bytes)
+        //   rtype_len (uint16 = 2 bytes)
+        //   rtype_str (variable)
+        //   vertex_count (uint32 = 4 bytes)
+        //   vertices (vertex_count * 3 * float32)
+        //   normals (same count as vertices — no count stored)
+        //   indices.size flat count (uint32 = 4 bytes)
+        //   indices (flat count * uint32)
+        //   color (BBBx = 4 bytes)
 
         // centerLat (float)
         if (offset + 4 > length) return NO;
@@ -253,7 +264,19 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         r.centerLon = *(const float *)(bytes + offset);
         offset += 4;
 
-        // numVerts (uint32)
+        // roadTypeLen (uint16)
+        if (offset + 2 > length) return NO;
+        uint16_t rtype_len = *(const uint16_t *)(bytes + offset);
+        offset += 2;
+
+        // roadType string
+        if (offset + rtype_len > length) return NO;
+        r.roadType = [[NSString alloc] initWithBytes:bytes + offset
+                                               length:rtype_len
+                                             encoding:NSUTF8StringEncoding];
+        offset += rtype_len;
+
+        // vertex_count (uint32)
         if (offset + 4 > length) return NO;
         r.numVertices = (int)*(const uint32_t *)(bytes + offset);
         offset += 4;
@@ -265,19 +288,13 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         memcpy(r.vertices, bytes + offset, vertsSize);
         offset += vertsSize;
 
-        // numNormals (uint32)
-        if (offset + 4 > length) return NO;
-        int numNormals = (int)*(const uint32_t *)(bytes + offset);
-        offset += 4;
+        // normals (same count as vertices — need to calculate)
+        if (offset + vertsSize > length) return NO;
+        r.normals = (float *)malloc(vertsSize);
+        memcpy(r.normals, bytes + offset, vertsSize);
+        offset += vertsSize;
 
-        // normals
-        size_t normsSize = (size_t)numNormals * 3 * sizeof(float);
-        if (offset + normsSize > length) return NO;
-        r.normals = (float *)malloc(normsSize);
-        memcpy(r.normals, bytes + offset, normsSize);
-        offset += normsSize;
-
-        // numIndices (uint32)
+        // indices.size flat count (uint32)
         if (offset + 4 > length) return NO;
         r.numIndices = (int)*(const uint32_t *)(bytes + offset);
         offset += 4;
@@ -289,24 +306,12 @@ static SCNVector3 SceneCoord(double lat, double lon, double alt) {
         memcpy(r.indices, bytes + offset, idxSize);
         offset += idxSize;
 
-        // colorR, colorG, colorB (float each)
-        if (offset + 12 > length) return NO;
-        r.color[0] = *(const float *)(bytes + offset);
-        r.color[1] = *(const float *)(bytes + offset + 4);
-        r.color[2] = *(const float *)(bytes + offset + 8);
-        offset += 12;
-
-        // roadTypeLen (uint32)
+        // color (BBBx = 3 uint8 + 1 padding = 4 bytes)
         if (offset + 4 > length) return NO;
-        uint32_t roadTypeLen = *(const uint32_t *)(bytes + offset);
+        r.color[0] = (float)bytes[offset] / 255.0f;
+        r.color[1] = (float)bytes[offset + 1] / 255.0f;
+        r.color[2] = (float)bytes[offset + 2] / 255.0f;
         offset += 4;
-
-        // roadType (char * roadTypeLen)
-        if (offset + roadTypeLen > length) return NO;
-        r.roadType = [[NSString alloc] initWithBytes:bytes + offset
-                                               length:roadTypeLen
-                                             encoding:NSUTF8StringEncoding];
-        offset += roadTypeLen;
 
         tileData->roads.push_back(r);
     }
