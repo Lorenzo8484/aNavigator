@@ -1,0 +1,121 @@
+[
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1075,
+    "severity": "BLOCKER",
+    "description": "5-param calculateRoute overload misinterprets coordinates. ObjC calls calculateRoute(fromLat, fromLon, destLat, destLon, name) — window.calculateRoute(a,b,c,d,e) dispatches to calculateRouteImpl(a,b,c,d,e). But calculateRouteImpl(lat, lon, name, destLat, destLon) maps: lat=fromLat, lon=fromLon, name=destLat, destLat=destLon, destLon=name. So doRoute(userLat, userLng, destLat=destLon, destLon=name, name=destLat) where destLon (a number) is used as latitude and name (a string) is used as longitude. The OSRM URL becomes userLng,userLat;'Roma',13.0 — a string as longitude → HTTP 400/failed route. ALL routes initiated from ObjC are broken.",
+    "fix": "Change calculateRouteImpl signature to match ObjC param order: function calculateRouteImpl(fromLat, fromLon, destLat, destLon, name). Line 1086-1088 should be: if(typeof destLat === 'number') { return doRoute(fromLat, fromLon, destLat, destLon, name); }. Also fix line 1084's parameter list."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1035,
+    "severity": "BLOCKER",
+    "description": "window.updateArrowRotation(heading, cameraHeading, offset) receives 3 params but calls applyArrowTransform() with ZERO arguments on line 1036. The internal applyArrowTransform(heading, cameraHeading, rotationOffset) at line 385 uses these params: heading+rotationOffset = undefined+undefined = NaN. CSS transform becomes 'rotate(NaNdeg)' which is invalid. userHeading is set to undefined. Arrow rotation is completely broken.",
+    "fix": "Change line 1036 from 'applyArrowTransform();' to 'applyArrowTransform(heading, cameraHeading, offset);'"
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1043,
+    "severity": "BLOCKER",
+    "description": "busStopsFromJSON(jsonStr) parses JSON and iterates over elements but only contains a comment '// Add marker (kept for reference)' — it NEVER actually adds any markers to the map. Bus stop markers are invisible. No L.marker() or marker.addTo(map) call exists.",
+    "fix": "Add actual marker creation: 'L.marker([el.lat, el.lon], {title: name}).addTo(map);' inside the forEach loop. Store markers in a group for batch removal."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1020,
+    "severity": "BLOCKER",
+    "description": "window.setMapTilt(pitch) is a complete no-op — it has a comment saying Leaflet doesn't support native tilt. The ObjC code at MapViewController.mm line 830 calls setMapTilt with the camera pitch value, but it has no effect. Camera pitch/angle settings are completely non-functional.",
+    "fix": "Either remove the functionality (comment out the JS call in MapVC.mm) or implement tilt using a Leaflet plugin or CSS 3D perspective transform on the map container."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 567,
+    "severity": "MAJOR",
+    "description": "Original calculateRoute(lat, lon, name) at line 567 is overridden by window.calculateRoute at line 1075 before it's ever exposed via the bridge (line 1003 sets window.calculateRoute=calculateRoute, then line 1075 OVERWRITES it). The original function at line 567 is dead code from the bridge's perspective. Only the overloaded version at line 1075 is reachable via ObjC. Line 654 references 'totalRouteDuration' which is undefined (the variable is 'totalRouteTime' at line 265). This will produce 'duration: undefined' in the return object.",
+    "fix": "Remove the duplicate original calculateRoute function (lines 567-664) entirely — it's dead code. Keep only the calculateRouteImpl/doRoute implementation. Also fix line 654 to use 'totalRouteTime' instead of 'totalRouteDuration'."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 45,
+    "severity": "MAJOR",
+    "description": "menuOpacity is hardcoded to 1.0 and never loaded from NSUserDefaults. SettingsViewController.mm saves the transparency slider to 'autista_menu_op' key (via udk:@'menu_op'), but MapViewController.mm never reads this key. Menu opacity setting is lost on app restart — it always resets to 1.0.",
+    "fix": "Add NSUserDefaults read for 'autista_menu_op' after line 44: 'self.menuOpacity = [ud objectForKey:@\"autista_menu_op\"] ? [ud floatForKey:@\"autista_menu_op\"] : 1.0;' Then call [self applyMenuOpacity] after the load."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 278,
+    "severity": "MAJOR",
+    "description": "compassButton is hardcoded to hidden=YES on creation and never shown regardless of the 'showCompass' SettingsStore property. The 'Mostra bussola' toggle in settings saves/loads 'showCompass' but nothing in MapVC reads it. The native compass button is always invisible.",
+    "fix": "In applyAllSettings or a new method, add: 'self.compassButton.hidden = ![SettingsStore shared].showCompass;'"
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 1553,
+    "severity": "MAJOR",
+    "description": "recalculateRoute JS function takes 0 parameters (function recalculateRoute() at map.html line 966) — it reads destinationLat/destinationLng from closure scope. But ObjC passes 3 params (destLat, destLon, name) that are silently ignored. If the JS closure scope has stale destination values (e.g., user started navigation to point A, then _pendingDestDict was set to point B), the recalculate will go to the WRONG destination (the original route destination, not the pending one).",
+    "fix": "Change the JS recalculateRoute function to accept parameters: 'function recalculateRoute(dLat, dLon, dName)' and use them instead of closure variables. Update window.recalculateRoute accordingly."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 830,
+    "severity": "MAJOR",
+    "description": "applyCameraSettings passes self.cameraPitch to setMapTilt JS function, which is a no-op (see map.html line 1020). The camera pitch/angle slider in settings has no visible effect on the Leaflet map. Users can adjust the angle but nothing changes on screen.",
+    "fix": "Since Leaflet doesn't support 3D tilt natively, either (a) remove the pitch parameter from applyCameraSettings JS string, (b) implement tilt via a Leaflet plugin, or (c) use a CSS perspective transform on the map container."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/BusViewController.mm",
+    "line": 248,
+    "severity": "MAJOR",
+    "description": "setupGestures at line 248-250 is an empty method with comment 'Nessuna gesture'. But handlePan: at line 252-256 is fully implemented (calculates rotation from pan velocity) — it's never connected to any gesture recognizer. Dead code. The pan-to-rotate-bus feature doesn't exist despite having full implementation.",
+    "fix": "Either remove handlePan: as dead code, or add a UIPanGestureRecognizer to scnView in setupGestures: 'UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)]; pan.delegate = self; [self.scnView addGestureRecognizer:pan];'"
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 562,
+    "severity": "MAJOR",
+    "description": "setupSearchTapToDismiss method is defined (lines 562-566) but NEVER CALLED anywhere. It would add a tap gesture to searchOverlay to dismiss the keyboard when tapping outside the search bar. Currently, tapping the search overlay does not dismiss the keyboard — the user must tap Cancel or a search result. The main tap gesture on the webView at line 52 won't help because the search overlay covers the webView when visible.",
+    "fix": "Call [self setupSearchTapToDismiss] at the end of openSearch or add the gesture recognizer directly in viewDidLoad after creating searchOverlay."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/MapViewController.mm",
+    "line": 1546,
+    "severity": "MAJOR",
+    "description": "_isRecalculating flag is set to YES at line 1546 and only reset to NO in the JS completion handler at line 1557. If the JS evaluation fails silently (no completion), or the network call inside recalculateRoute() JS function fails, the completion handler may never fire. Once stuck as YES, future recalculate attempts are blocked. The check 'if (_isRecalculating ...) return;' at line 1545 becomes a deadlock.",
+    "fix": "Add a dispatch_after fallback (e.g., 10 seconds) or reset _isRecalculating in the error path. Or use a guard with timeout: dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10*NSEC_PER_SEC), ...) to reset the flag."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/SettingsViewController.mm",
+    "line": 551,
+    "severity": "MINOR",
+    "description": "udk: method uses 'autista_' prefix for slider NSUserDefaults keys. These MATCH the keys read in MapVC.mm viewDidLoad (autista_cam_alt etc.) — so camera settings ARE preserved across restarts. However, bus slider keys (autista_busY, autista_busX, autista_busS, autista_busR) and arrow slider (autista_arrR) are saved to NSUserDefaults directly by the slider infrastructure AND redundantly via SettingsStore.save using 'set_busY', 'set_busX', 'set_busS', 'set_busR', 'set_arrR' keys. Two separate persistence mechanisms for the same data can go out of sync.",
+    "fix": "Remove the redundant NSUserDefaults writes in sliderChanged: and rebuildSliders for bus/arrow settings — rely solely on SettingsStore save/load. Or synchronize by always reading from SettingsStore."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/SettingsStore.h",
+    "line": 3,
+    "severity": "MINOR",
+    "description": "SettingsStore.h imports MapViewController.h (which imports WebKit, CoreLocation, AVFoundation) only to get TransportMode and AlertLevel enum definitions. This creates unnecessary compile-time dependency on heavy frameworks for what should be simple enum imports.",
+    "fix": "Move TransportMode and AlertLevel enum definitions from MapViewController.h into SettingsStore.h (or a shared Types.h header). Remove the #import 'MapViewController.h' from SettingsStore.h."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/SettingsViewController.mm",
+    "line": 112,
+    "severity": "MINOR",
+    "description": "showBusStops load from NSUserDefaults uses '[ud objectForKey:@\"set_busstops\"] ? [ud boolForKey:@\"set_busstops\"] : NO' pattern (extra safety check) while other BOOL properties load directly without objectForKey guard. Inconsistent but functional.",
+    "fix": "(Optional) Make consistent: either add objectForKey guard to all BOOL loads or remove it from showBusStops."
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1003,
+    "severity": "MINOR",
+    "description": "window.calculateRoute is set to calculateRoute (3-param) at line 1003, then immediately overwritten by the overloaded function at line 1075. The assignment at line 1003 is dead code — the original function is never exposed via the bridge.",
+    "fix": "Remove line 1003: 'window.calculateRoute = calculateRoute;'"
+  },
+  {
+    "file": "/home/alina/aNavigator/src/map.html",
+    "line": 1042,
+    "severity": "MINOR",
+    "description": "busStopsSetVisible function is a no-op (just a placeholder comment). Even if bus stops were rendered, their visibility toggle would do nothing.",
+    "fix": "Implement visibility toggle: store bus stop markers in a L.layerGroup and call .addTo(map)/.clearLayers() based on the visible flag."
+  }
+]

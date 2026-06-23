@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>aNavigator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  #map { height: 100%; width: 100%; }
+
+  /* Compass overlay */
+  #compass-overlay {
+    position: absolute;
+    top: 80px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    background: rgba(255,255,255,0.92);
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    pointer-events: none;
+    transition: transform 0.1s ease;
+  }
+  #compass-arrow {
+    font-size: 28px;
+    line-height: 1;
+    user-select: none;
+  }
+
+  /* Navigation info panel */
+  #nav-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255,255,255,0.95);
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.15);
+    padding: 14px 18px 24px;
+    z-index: 1000;
+    display: none;
+    font-size: 14px;
+    border-radius: 16px 16px 0 0;
+    transition: transform 0.25s ease;
+  }
+  #nav-panel.visible { display: block; }
+  #nav-instruction { font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #222; }
+  #nav-sub { display: flex; justify-content: space-between; color: #555; font-size: 13px; }
+  #nav-distance, #nav-eta, #nav-speed { }
+  .nav-label { color: #888; font-weight: 400; }
+  #end-nav-btn {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #e53935;
+    color: #fff;
+    border: none;
+    border-radius: 24px;
+    padding: 8px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(229,57,53,0.4);
+    z-index: 1001;
+  }
+  #end-nav-btn:hover { background: #c62828; }
+  #end-nav-btn:active { transform: translateX(-50%) scale(0.96); }
+
+  /* Map type switcher */
+  #map-type-switcher {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    background: rgba(255,255,255,0.92);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    overflow: hidden;
+  }
+  #map-type-switcher button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    color: #333;
+    transition: background 0.15s;
+  }
+  #map-type-switcher button:hover { background: #e3f2fd; }
+  #map-type-switcher button.active { background: #1976d2; color: #fff; font-weight: 600; }
+
+  /* Search box */
+  #search-box {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    width: 280px;
+    max-width: calc(100% - 100px);
+  }
+  #search-input {
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+  }
+  #search-results {
+    background: #fff;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+    margin-top: 2px;
+  }
+  #search-results.visible { display: block; }
+  #search-results .result-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    font-size: 13px;
+  }
+  #search-results .result-item:hover { background: #f5f5f5; }
+  #search-results .result-item:last-child { border-bottom: none; }
+  .result-name { font-weight: 500; color: #222; }
+  .result-detail { font-size: 11px; color: #888; }
+
+  /* Custom arrow marker styles */
+  .user-arrow-marker {
+    background: transparent;
+    border: none;
+  }
+  .user-arrow-icon {
+    width: 32px;
+    height: 32px;
+    position: relative;
+  }
+  .user-arrow-icon::before {
+    content: '▲';
+    display: block;
+    width: 100%;
+    height: 100%;
+    font-size: 32px;
+    line-height: 32px;
+    text-align: center;
+    color: #1565c0;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    transform-origin: center center;
+  }
+
+  /* Destination marker */
+  .destination-flag {
+    font-size: 32px;
+    line-height: 32px;
+    text-align: center;
+    color: #e53935;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
+  /* Loading indicator */
+  #loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);
+    z-index: 999;
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+
+  @media (max-width: 480px) {
+    #map-type-switcher { top: 80px; right: 10px; }
+    #map-type-switcher button { padding: 6px 10px; font-size: 11px; }
+    #search-box { width: 200px; left: 10px; top: 10px; }
+    #search-input { padding: 8px 12px; font-size: 13px; }
+    #compass-overlay { top: 80px; right: 10px; width: 40px; height: 40px; }
+    #compass-arrow { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- Compass overlay -->
+<div id="compass-overlay">
+  <div id="compass-arrow">&#x2191;</div>
+</div>
+
+<!-- Map type switcher -->
+<div id="map-type-switcher">
+  <button id="btn-osm" class="active" onclick="setMapType(0)">OSM</button>
+  <button id="btn-sat" onclick="setMapType(1)">Satellite</button>
+  <button id="btn-dark" onclick="setMapType(2)">Dark</button>
+</div>
+
+<!-- Search -->
+<div id="search-box">
+  <input id="search-input" type="text" placeholder="Search location..." autocomplete="off" />
+  <div id="search-results"></div>
+</div>
+
+<!-- Navigation panel -->
+<div id="nav-panel">
+  <button id="end-nav-btn" onclick="endNavigation()">✕ End Nav</button>
+  <div id="nav-instruction">—</div>
+  <div id="nav-sub">
+    <span id="nav-distance"><span class="nav-label">Dist:</span> —</span>
+    <span id="nav-eta"><span class="nav-label">ETA:</span> —</span>
+    <span id="nav-speed"><span class="nav-label">Speed:</span> —</span>
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="loading">Loading...</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // ============================================================
+  // STATE
+  // ============================================================
+  var map = null;
+  var userMarker = null;        // custom arrow marker (DivIcon)
+  var userLat = 51.505;
+  var userLng = -0.09;
+  var userHeading = 0;
+  var cameraHeading = 0;
+  var arrowRotationOffset = 0;
+
+  var tileLayers = {};          // { osm, satellite, dark }
+  var currentMapType = 0;
+
+  var routePolyline = null;
+  var destinationMarker = null;
+  var destinationLat = null;
+  var destinationLng = null;
+  var destinationName = '';
+
+  var isNavigating = false;
+  var routeCoords = [];         // array of [lat, lng] from OSRM
+  var routeInstructions = [];   // array of {text, distance, time, position}
+  var currentInstructionIndex = -1;
+  var totalRouteDistance = 0;   // meters
+  var totalRouteTime = 0;       // seconds
+  var distanceRemaining = 0;
+  var timeRemaining = 0;
+  var navigationStartTime = 0;
+  var currentSpeed = 0;         // m/s
+
+  var animFrameId = null;
+  var lastAnimTime = 0;
+
+  // ============================================================
+  // TILE LAYERS
+  // ============================================================
+
+  function initTileLayers() {
+    tileLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    });
+
+    tileLayers.satellite = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://esri.com">ESRI</a> — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      });
+
+    tileLayers.dark = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+      });
+  }
+
+  // ============================================================
+  // MAP INIT
+  // ============================================================
+
+  function initMap() {
+    initTileLayers();
+
+    map = L.map('map', {
+      center: [userLat, userLng],
+      zoom: 15,
+      zoomControl: true,
+      attributionControl: true
+    });
+
+    tileLayers.osm.addTo(map);
+
+    // Create user arrow marker
+    createUserMarker();
+
+    // Search input listener
+    document.getElementById('search-input').addEventListener('input', function(e) {
+      var q = e.target.value.trim();
+      if (q.length < 1) {
+        document.getElementById('search-results').classList.remove('visible');
+        document.getElementById('search-results').innerHTML = '';
+        return;
+      }
+      searchOSM(q).then(function(results) {
+        showSearchResults(results);
+      }).catch(function(err) {
+        console.warn('Search error:', err);
+      });
+    });
+
+    // Also search on Enter
+    document.getElementById('search-input').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var q = this.value.trim();
+        if (q.length > 0) {
+          searchOSM(q).then(function(results) {
+            showSearchResults(results);
+          });
+        }
+      }
+    });
+
+    // Close search on click elsewhere
+    document.addEventListener('click', function(e) {
+      var sb = document.getElementById('search-box');
+      if (!sb.contains(e.target)) {
+        document.getElementById('search-results').classList.remove('visible');
+      }
+    });
+
+    map.on('zoomend', function() {
+      updateArrowScale(map.getZoom());
+    });
+
+    console.log('[Map] Initialized');
+  }
+
+  // ============================================================
+  // USER ARROW MARKER
+  // ============================================================
+
+  function createUserMarker() {
+    if (userMarker) {
+      map.removeLayer(userMarker);
+    }
+
+    var arrowIcon = L.divIcon({
+      className: 'user-arrow-marker',
+      html: '<div class="user-arrow-icon"></div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    userMarker = L.marker([userLat, userLng], {
+      icon: arrowIcon,
+      zIndexOffset: 10000,
+      interactive: false
+    }).addTo(map);
+
+    // Apply initial rotation
+    applyArrowTransform(userHeading, cameraHeading, arrowRotationOffset);
+    updateArrowScale(map ? map.getZoom() : 15);
+  }
+
+  function applyArrowTransform(heading, cameraHeading, rotationOffset) {
+    if (!userMarker) return;
+    var el = userMarker.getElement();
+    if (!el) return;
+    var iconEl = el.querySelector('.user-arrow-icon');
+    if (!iconEl) return;
+
+    var totalRotation = heading + rotationOffset;
+    iconEl.style.transform = 'rotate(' + totalRotation + 'deg)';
+    userHeading = heading;
+    arrowRotationOffset = rotationOffset;
+  }
+
+  function updateArrowScale(zoomLevel) {
+    if (!userMarker) return;
+    var el = userMarker.getElement();
+    if (!el) return;
+    var iconEl = el.querySelector('.user-arrow-icon');
+    if (!iconEl) return;
+
+    // Scale arrow based on zoom: larger at high zoom, smaller at low zoom
+    var scale = 0.6 + (zoomLevel / 20) * 1.0;
+    if (scale < 0.7) scale = 0.7;
+    if (scale > 1.6) scale = 1.6;
+
+    var pseudoEl = iconEl.querySelector('::before') || iconEl;
+    // We apply scale to the pseudo-element via the parent
+    iconEl.style.transform = 'rotate(' + (userHeading + arrowRotationOffset) + 'deg) scale(' + scale + ')';
+    iconEl.style.fontSize = (32 * scale) + 'px';
+  }
+
+  // ============================================================
+  // MAP TYPE SWITCHING
+  // ============================================================
+
+  function setMapType(type) {
+    if (type === currentMapType) return;
+    currentMapType = type;
+
+    // Remove all tile layers
+    map.removeLayer(tileLayers.osm);
+    map.removeLayer(tileLayers.satellite);
+    map.removeLayer(tileLayers.dark);
+
+    // Add the selected one
+    var layer = null;
+    if (type === 0) {
+      layer = tileLayers.osm;
+    } else if (type === 1) {
+      layer = tileLayers.satellite;
+    } else if (type === 2) {
+      layer = tileLayers.dark;
+    }
+    if (layer) layer.addTo(map);
+
+    // Update button styles
+    document.getElementById('btn-osm').classList.remove('active');
+    document.getElementById('btn-sat').classList.remove('active');
+    document.getElementById('btn-dark').classList.remove('active');
+    if (type === 0) document.getElementById('btn-osm').classList.add('active');
+    else if (type === 1) document.getElementById('btn-sat').classList.add('active');
+    else if (type === 2) document.getElementById('btn-dark').classList.add('active');
+  }
+
+  // ============================================================
+  // NOMINATIM SEARCH
+  // ============================================================
+
+  function searchOSM(query) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query) + '&limit=10&addressdetails=1';
+
+    return fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    }).then(function(response) {
+      if (!response.ok) throw new Error('Nominatim error ' + response.status);
+      return response.json();
+    }).then(function(data) {
+      return data.map(function(item) {
+        return {
+          name: item.display_name ? item.display_name.split(',')[0] : (item.name || 'Unknown'),
+          lat: parseFloat(item.lat),
+          lon: parseFloat(item.lon),
+          full: item.display_name || item.name || ''
+        };
+      });
+    });
+  }
+
+  // Native search bridge: fetches Nominatim and posts results to ObjC via WKScriptMessageHandler
+  // This is called from MapViewController.mm searchBar:textDidChange:
+  function nativeSearchOSM(query) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query) + '&limit=10';
+    fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then(function(response) {
+        if (!response.ok) return [];
+        return response.json();
+      })
+      .then(function(data) {
+        var results = data.map(function(item) {
+          return {
+            name: item.display_name ? item.display_name.split(',')[0] : (item.name || 'Unknown'),
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon),
+            full: item.display_name || item.name || ''
+          };
+        });
+        try { webkit.messageHandlers.searchResults.postMessage(results); } catch(e) {}
+      })
+      .catch(function(err) {
+        try { webkit.messageHandlers.searchResults.postMessage([]); } catch(e) {}
+      });
+  }
+
+  function showSearchResults(results) {
+    var container = document.getElementById('search-results');
+    container.innerHTML = '';
+    if (!results || results.length === 0) {
+      container.classList.remove('visible');
+      return;
+    }
+
+    results.forEach(function(r) {
+      var div = document.createElement('div');
+      div.className = 'result-item';
+      div.innerHTML = '<div class="result-name">' + escapeHtml(r.name) + '</div>' +
+                      '<div class="result-detail">' + escapeHtml(truncate(r.full, 80)) + '</div>';
+      div.addEventListener('click', function() {
+        flyTo(r.lat, r.lon);
+        container.classList.remove('visible');
+        document.getElementById('search-input').value = r.name;
+        // Place a temporary marker
+        if (destinationMarker) {
+          map.removeLayer(destinationMarker);
+        }
+        destinationMarker = L.marker([r.lat, r.lon], {
+          icon: L.divIcon({
+            className: 'destination-flag',
+            html: '<div class="destination-flag">&#x1F6A9;</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+          })
+        }).addTo(map);
+        destinationLat = r.lat;
+        destinationLng = r.lon;
+        destinationName = r.name;
+      });
+      container.appendChild(div);
+    });
+    container.classList.add('visible');
+  }
+
+  function truncate(str, len) {
+    if (str.length <= len) return str;
+    return str.substring(0, len) + '…';
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  // ============================================================
+  // POSITION UPDATES
+  // ============================================================
+
+  function updatePosition(lat, lng) {
+    userLat = lat;
+    userLng = lng;
+    if (userMarker) {
+      userMarker.setLatLng([lat, lng]);
+    }
+
+    // If navigating, check snap-to-route and auto-recalculate
+    if (isNavigating && routeCoords.length > 0) {
+      var snapped = snapToRoute([lat, lng], routeCoords);
+      if (snapped) {
+        // Distance from user to snapped point
+        var snapDist = distanceBetween([lat, lng], [snapped.lat, snapped.lng]);
+        if (snapDist > 5) {
+          // Off route > 5m: auto-recalculate
+          console.log('[Nav] Off route by ' + snapDist.toFixed(1) + 'm — recalculating');
+          recalculateRoute();
+          return;
+        }
+        // Update remaining distance/time from snapped point
+        updateRemainingFromSnap(snapped);
+      }
+    }
+
+    // Center map on user when navigating
+    if (isNavigating && map) {
+      map.setView([lat, lng], map.getZoom(), { animate: false });
+    }
+  }
+
+  function flyTo(lat, lng) {
+    if (map) {
+      map.flyTo([lat, lng], Math.max(map.getZoom(), 14), { duration: 1.5 });
+    }
+  }
+
+  // ============================================================
+  // OSRM ROUTING
+  // ============================================================
+
+  function calculateRoute(lat, lon, name) {
+    destinationLat = lat;
+    destinationLng = lon;
+    destinationName = name || 'Destination';
+
+    // Show loading
+    document.getElementById('loading').style.display = 'block';
+
+    var url = 'https://router.project-osrm.org/route/v1/driving/' +
+              userLng + ',' + userLat + ';' + lon + ',' + lat +
+              '?overview=full&geometries=geojson&steps=true&alternatives=false';
+
+    return fetch(url)
+      .then(function(response) {
+        if (!response.ok) throw new Error('OSRM error ' + response.status);
+        return response.json();
+      })
+      .then(function(data) {
+        document.getElementById('loading').style.display = 'none';
+
+        if (!data.routes || data.routes.length === 0) {
+          console.error('[Route] No routes found');
+          return null;
+        }
+
+        var route = data.routes[0];
+        var coords = route.geometry.coordinates.map(function(c) {
+          return [c[1], c[0]]; // GeoJSON is [lng, lat]
+        });
+
+        routeCoords = coords;
+        totalRouteDistance = route.distance; // meters
+        totalRouteTime = route.duration;     // seconds
+        distanceRemaining = totalRouteDistance;
+        timeRemaining = totalRouteTime;
+
+        // Parse instructions from steps
+        routeInstructions = [];
+        route.legs.forEach(function(leg) {
+          leg.steps.forEach(function(step) {
+            var stepDist = step.distance || 0;
+            var stepTime = step.duration || 0;
+            var stepCoords = step.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+            var midIdx = Math.floor(stepCoords.length / 2);
+            var pos = stepCoords[midIdx] || stepCoords[0] || [userLat, userLng];
+
+            routeInstructions.push({
+              text: step.maneuver && step.maneuver.instruction ? step.maneuver.instruction : 'Continue',
+              distance: stepDist,
+              time: stepTime,
+              position: pos
+            });
+          });
+        });
+
+        currentInstructionIndex = 0;
+
+        // Draw route polyline
+        if (routePolyline) map.removeLayer(routePolyline);
+        routePolyline = L.polyline(coords, {
+          color: '#1565c0',
+          weight: 5,
+          opacity: 0.9,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(map);
+
+        // Add destination marker if not already there
+        if (destinationMarker) map.removeLayer(destinationMarker);
+        destinationMarker = L.marker([lat, lon], {
+          icon: L.divIcon({
+            className: 'destination-flag',
+            html: '<div class="destination-flag">&#x1F6A9;</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+          })
+        }).addTo(map);
+
+        // Fit bounds
+        var bounds = L.latLngBounds(coords);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+
+        console.log('[Route] Calculated: ' + (totalRouteDistance / 1000).toFixed(2) + ' km, ' +
+                    Math.round(totalRouteTime / 60) + ' min');
+
+        return {
+          distance: totalRouteDistance,
+          duration: totalRouteDuration,
+          coords: coords,
+          instructions: routeInstructions
+        };
+      })
+      .catch(function(err) {
+        document.getElementById('loading').style.display = 'none';
+        console.error('[Route] OSRM error:', err);
+        throw err;
+      });
+  }
+
+  // ============================================================
+  // NAVIGATION
+  // ============================================================
+
+  function startNavigation() {
+    if (!routeCoords || routeCoords.length === 0) {
+      console.warn('[Nav] No route to navigate');
+      return;
+    }
+    isNavigating = true;
+    navigationStartTime = Date.now();
+    currentSpeed = 0;
+    currentInstructionIndex = 0;
+
+    document.getElementById('nav-panel').classList.add('visible');
+
+    // Start animation loop
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    lastAnimTime = performance.now();
+    animFrameId = requestAnimationFrame(animationLoop);
+
+    // Speak first instruction
+    var firstInstr = routeInstructions.length > 0 ? routeInstructions[0].text : 'Starting navigation';
+    speak(firstInstr);
+
+    console.log('[Nav] Started');
+  }
+
+  function endNavigation() {
+    isNavigating = false;
+    if (animFrameId) {
+      cancelAnimationFrame(animFrameId);
+      animFrameId = null;
+    }
+
+    document.getElementById('nav-panel').classList.remove('visible');
+
+    // Clear route
+    if (routePolyline) {
+      map.removeLayer(routePolyline);
+      routePolyline = null;
+    }
+    if (destinationMarker) {
+      map.removeLayer(destinationMarker);
+      destinationMarker = null;
+    }
+
+    routeCoords = [];
+    routeInstructions = [];
+    distanceRemaining = 0;
+    timeRemaining = 0;
+    currentSpeed = 0;
+
+    // Notify WKWebView
+    webkit.messageHandlers.navigationEnd.postMessage();
+
+    console.log('[Nav] Ended');
+  }
+
+  // ============================================================
+  // ANIMATION LOOP (20 Hz)
+  // ============================================================
+
+  function animationLoop(timestamp) {
+    if (!isNavigating) return;
+
+    var elapsed = timestamp - lastAnimTime;
+    // Target ~50ms per frame (20 Hz)
+    if (elapsed >= 50) {
+      lastAnimTime = timestamp - (elapsed % 50);
+      tickNavigation();
+    }
+
+    animFrameId = requestAnimationFrame(animationLoop);
+  }
+
+  function tickNavigation() {
+    if (!routeCoords.length) return;
+
+    // Update remaining based on current position
+    var snapped = snapToRoute([userLat, userLng], routeCoords);
+    if (snapped) {
+      updateRemainingFromSnap(snapped);
+    }
+
+    // Find current instruction
+    updateCurrentInstruction();
+
+    // Update UI
+    updateNavUI();
+
+    // Speak next instruction if approaching
+    if (currentInstructionIndex < routeInstructions.length) {
+      var instr = routeInstructions[currentInstructionIndex];
+      if (instr && instr.distance && distanceRemaining - (totalRouteDistance - instr.distance) > -10) {
+        // We check if the instruction distance is relevant
+      }
+      // Simple approach: speak when instruction index changes
+    }
+  }
+
+  // ============================================================
+  // SNAP TO ROUTE
+  // ============================================================
+
+  function snapToRoute(point, coords) {
+    if (!coords || coords.length < 2) return null;
+
+    var bestDist = Infinity;
+    var bestPoint = null;
+
+    for (var i = 0; i < coords.length - 1; i++) {
+      var a = coords[i];
+      var b = coords[i + 1];
+      var snapped = closestPointOnSegment(point, a, b);
+      var d = distanceBetween(point, [snapped.lat, snapped.lng]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestPoint = snapped;
+      }
+    }
+
+    return bestPoint;
+  }
+
+  function closestPointOnSegment(p, a, b) {
+    // p, a, b are [lat, lng]
+    // Project p onto line segment ab, in cartesian approximation
+    var ax = a[1], ay = a[0];
+    var bx = b[1], by = b[0];
+    var px = p[1], py = p[0];
+
+    var dx = bx - ax;
+    var dy = by - ay;
+    var lenSq = dx * dx + dy * dy;
+
+    if (lenSq === 0) return { lat: a[0], lng: a[1] };
+
+    var t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+
+    return {
+      lat: ay + t * dy,
+      lng: ax + t * dx
+    };
+  }
+
+  // ============================================================
+  // ROUTE REMAINING CALCULATION
+  // ============================================================
+
+  function updateRemainingFromSnap(snapped) {
+    // Find where we are on the route and compute remaining distance/time
+    if (!routeCoords || routeCoords.length < 2) return;
+
+    // Find nearest segment index
+    var nearestIdx = 0;
+    var bestDist = Infinity;
+    for (var i = 0; i < routeCoords.length - 1; i++) {
+      var a = routeCoords[i];
+      var b = routeCoords[i + 1];
+      var snappedP = closestPointOnSegment([snapped.lat, snapped.lng], a, b);
+      var d = distanceBetween([snapped.lat, snapped.lng], [snappedP.lat, snappedP.lng]);
+      if (d < bestDist) {
+        bestDist = d;
+        nearestIdx = i;
+      }
+    }
+
+    // Distance from snapped point along the route to end
+    var remainingDist = 0;
+    // Distance from snapped to end of this segment
+    var segEnd = routeCoords[nearestIdx + 1];
+    remainingDist += distanceBetween([snapped.lat, snapped.lng], segEnd);
+
+    // Add remaining full segments
+    for (var j = nearestIdx + 1; j < routeCoords.length - 1; j++) {
+      remainingDist += distanceBetween(routeCoords[j], routeCoords[j + 1]);
+    }
+
+    distanceRemaining = remainingDist;
+    // Estimate time remaining proportional to distance
+    if (totalRouteDistance > 0) {
+      timeRemaining = (remainingDist / totalRouteDistance) * totalRouteTime;
+    }
+
+    // Calculate speed (simple: distance delta over time)
+    // We use a basic heuristic based on remaining time
+    var elapsedHours = (Date.now() - navigationStartTime) / 3600000;
+    var distCovered = totalRouteDistance - remainingDist;
+    if (elapsedHours > 0.001) {
+      currentSpeed = distCovered / elapsedHours; // m/h
+      currentSpeed = currentSpeed / 1000; // km/h
+      if (currentSpeed < 0) currentSpeed = 0;
+      if (currentSpeed > 200) currentSpeed = 0; // sanity
+    }
+  }
+
+  function updateCurrentInstruction() {
+    if (!routeInstructions.length) return;
+
+    // Find which instruction we're approaching
+    var bestIdx = 0;
+    var bestDist = Infinity;
+    for (var i = 0; i < routeInstructions.length; i++) {
+      var instr = routeInstructions[i];
+      if (instr.position) {
+        var d = distanceBetween([userLat, userLng], instr.position);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+    }
+
+    // If we passed this instruction's position, move to next
+    if (bestIdx > currentInstructionIndex) {
+      // Speak the new instruction
+      speak(routeInstructions[bestIdx].text);
+    }
+    currentInstructionIndex = Math.min(bestIdx, routeInstructions.length - 1);
+  }
+
+  // ============================================================
+  // NAV UI UPDATE
+  // ============================================================
+
+  function updateNavUI() {
+    var instrText = '—';
+    if (routeInstructions.length > 0 && currentInstructionIndex >= 0 &&
+        currentInstructionIndex < routeInstructions.length) {
+      instrText = routeInstructions[currentInstructionIndex].text;
+    }
+
+    document.getElementById('nav-instruction').textContent = instrText;
+
+    // Distance
+    var distKm = distanceRemaining / 1000;
+    var distStr = distKm < 1 ? Math.round(distanceRemaining) + ' m' : distKm.toFixed(1) + ' km';
+    document.getElementById('nav-distance').innerHTML = '<span class="nav-label">Dist:</span> ' + distStr;
+
+    // ETA
+    var etaSec = Math.round(timeRemaining);
+    var etaStr = formatDuration(etaSec);
+    document.getElementById('nav-eta').innerHTML = '<span class="nav-label">ETA:</span> ' + etaStr;
+
+    // Speed
+    var speedStr = currentSpeed.toFixed(1) + ' km/h';
+    document.getElementById('nav-speed').innerHTML = '<span class="nav-label">Speed:</span> ' + speedStr;
+  }
+
+  function formatDuration(seconds) {
+    if (seconds < 0) seconds = 0;
+    var hrs = Math.floor(seconds / 3600);
+    var mins = Math.floor((seconds % 3600) / 60);
+    if (hrs > 0) return hrs + 'h ' + mins + 'm';
+    return mins + 'm';
+  }
+
+  // ============================================================
+  // VOICE GUIDANCE
+  // ============================================================
+
+  function speak(text) {
+    if (!text) return;
+    try {
+      if (typeof webkit !== 'undefined' && webkit.messageHandlers &&
+          webkit.messageHandlers.speak) {
+        webkit.messageHandlers.speak.postMessage(text);
+      } else {
+        // Fallback: Web Speech API
+        if ('speechSynthesis' in window) {
+          var utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.9;
+          speechSynthesis.speak(utterance);
+        }
+      }
+    } catch (e) {
+      console.warn('[Voice] speak error:', e);
+    }
+  }
+
+  // ============================================================
+  // NAV STATE
+  // ============================================================
+
+  function getNavState() {
+    return JSON.stringify({
+      instruction: (routeInstructions.length > 0 && currentInstructionIndex >= 0 &&
+                    currentInstructionIndex < routeInstructions.length)
+                    ? routeInstructions[currentInstructionIndex].text : '',
+      distanceRemaining: Math.round(distanceRemaining),
+      etaSeconds: Math.round(timeRemaining)
+    });
+  }
+
+  // ============================================================
+  // AUTO-RECALCULATE
+  // ============================================================
+
+  function recalculateRoute() {
+    if (!destinationLat || !destinationLng) return;
+    calculateRoute(destinationLat, destinationLng, destinationName)
+      .then(function() {
+        if (isNavigating) {
+          // Reset instruction index
+          currentInstructionIndex = 0;
+          speak('Recalculating route');
+        }
+      })
+      .catch(function(err) {
+        console.error('[Nav] Recalc failed:', err);
+      });
+  }
+
+  // ============================================================
+  // DISTANCE HELPER (Haversine)
+  // ============================================================
+
+  function distanceBetween(p1, p2) {
+    // p1, p2 are [lat, lng]
+    var R = 6371000; // Earth radius in meters
+    var dLat = (p2[0] - p1[0]) * Math.PI / 180;
+    var dLon = (p2[1] - p1[1]) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(p1[0] * Math.PI / 180) * Math.cos(p2[0] * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // ============================================================
+  // EXPOSE TO WINDOW (for WKWebView JS bridge)
+  // ============================================================
+
+  window.setMapType = setMapType;
+  window.searchOSM = searchOSM;
+  window.nativeSearchOSM = nativeSearchOSM;
+  // calculateRoute is defined below with overload support
+  window.startNavigation = startNavigation;
+  window.endNavigation = endNavigation;
+  window.applyArrowTransform = applyArrowTransform;
+  window.updateArrowScale = updateArrowScale;
+  window.getNavState = getNavState;
+  window.updatePosition = updatePosition;
+  window.flyTo = flyTo;
+  window.speak = speak;
+  window.recalculateRoute = recalculateRoute;
+  // === BRIDGE FUNCTIONS (called from MapViewController.mm) ===
+  window.setMapCenter = function(lat, lng, zoom) {
+    if (map) map.setView([lat, lng], zoom || map.getZoom(), {animate: false});
+  };
+  window.setMapBearing = function(heading) {
+    if (map) map.setBearing(heading || 0);
+  };
+  window.setMapTilt = function(pitch) {
+    // Simulate tilt via CSS perspective on map container
+    var el = document.getElementById('map');
+    if (el) {
+      var deg = pitch || 0;
+      el.style.transform = 'perspective(800px) rotateX(' + (-deg * 0.5) + 'deg)';
+      el.style.transformOrigin = 'center bottom';
+    }
+  };
+  window.centerOnUser = function() {
+    if (map) map.setView([userLat, userLng], 15, {animate: true});
+  };
+  window.clearRoute = function() {
+    if (routePolyline) { map.removeLayer(routePolyline); routePolyline = null; }
+    routeCoords = [];
+  };
+  window.clearDestination = function() {
+    if (destinationMarker) { map.removeLayer(destinationMarker); destinationMarker = null; }
+    destinationLat = null; destinationLng = null;
+  };
+  window.updateArrowRotation = function(heading, cameraHeading, offset) {
+    userHeading = heading || 0;
+    var rot = userHeading - (cameraHeading || 0) + (offset || 0);
+    var el = document.getElementById('arrow-marker');
+    if (el) el.style.transform = 'rotate(' + (-rot) + 'deg)';
+  };
+  window.updateCompass = function(heading) {
+    var el = document.getElementById('compass-overlay');
+    if (el) el.style.transform = 'rotate(' + (-heading) + 'deg)';
+  };
+  window.busStopsSetVisible = function(v) { /* placeholder — bus stops via Overpass */ };
+  window.busStopsFromJSON = function(jsonStr) {
+    try {
+      var data = JSON.parse(jsonStr);
+      if (!data.elements) return;
+      data.elements.forEach(function(el) {
+        if (el.lat && el.lon) {
+          var name = (el.tags && el.tags.name) ? el.tags.name : 'Fermata autobus';
+          L.circleMarker([el.lat, el.lon], {
+            radius: 5,
+            fillColor: '#007AFF',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.8
+          }).bindPopup('🚏 ' + name).addTo(map);
+        }
+      });
+    } catch(e) {}
+  };
+  window.getMapZoom = function() {
+    return map ? map.getZoom() : 12;
+  };
+  window.getMapBounds = function() {
+    if (!map) return '{}';
+    var b = map.getBounds();
+    return JSON.stringify({south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast()});
+  };
+  window.coordinateAheadOnRoute = function(lat, lng, meters) {
+    return JSON.stringify({lat: lat, lng: lng}); // simplified — returns current
+  };
+  window.snapToRoute = function(lat, lng) {
+    // Accept 2 float params (called from ObjC)
+    if (arguments.length === 2 && typeof lat === 'number' && typeof lng === 'number') {
+      return snapToRoute([lat, lng], routeCoords);
+    }
+    // Original array version
+    return snapToRoute(lat, lng);
+  };
+  // Fix: Accept 5-param overload (fromLat, fromLon, destLat, destLon, name)
+  // Called from ObjC as: calculateRoute(fromLat, fromLon, destLat, destLon, name)
+  // Called from JS as: calculateRoute(lat, lon, name)
+  window.calculateRoute = function(a, b, c, d, e) {
+    if (typeof d === 'number') {
+      // 5-param: calculateRoute(fromLat, fromLon, destLat, destLon, name)
+      return doRoute(a, b, c, d, e);
+    }
+    // 3-param: calculateRoute(lat, lon, name) — use current user position
+    return doRoute(userLat, userLng, a, b, c);
+  };
+  function doRoute(fromLat, fromLng, toLat, toLng, name) {
+    destinationLat = toLat;
+    destinationLng = toLng;
+    destinationName = name || 'Destination';
+    document.getElementById('loading').style.display = 'block';
+    var url = 'https://router.project-osrm.org/route/v1/driving/' +
+              fromLng + ',' + fromLat + ';' + toLng + ',' + toLat +
+              '?overview=full&geometries=geojson&steps=true&alternatives=false';
+    return fetch(url)
+      .then(function(response) {
+        if (!response.ok) throw new Error('OSRM error ' + response.status);
+        return response.json();
+      })
+      .then(function(data) {
+        document.getElementById('loading').style.display = 'none';
+        if (!data.routes || data.routes.length === 0) { console.error('[Route] No routes found'); return null; }
+        var route = data.routes[0];
+        var coords = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+        routeCoords = coords;
+        totalRouteDistance = route.distance;
+        totalRouteTime = route.duration;
+        distanceRemaining = totalRouteDistance;
+        timeRemaining = totalRouteTime;
+        routeInstructions = [];
+        route.legs.forEach(function(leg) {
+          leg.steps.forEach(function(step) {
+            var stepDist = step.distance || 0;
+            var stepTime = step.duration || 0;
+            var stepCoords = step.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+            var midIdx = Math.floor(stepCoords.length / 2);
+            var pos = stepCoords[midIdx] || stepCoords[0] || [fromLat, fromLng];
+            routeInstructions.push({
+              text: step.maneuver && step.maneuver.instruction ? step.maneuver.instruction : 'Continue',
+              distance: stepDist,
+              time: stepTime,
+              position: pos
+            });
+          });
+        });
+        currentInstructionIndex = 0;
+        if (routePolyline) map.removeLayer(routePolyline);
+        routePolyline = L.polyline(coords, {color: '#1565c0', weight: 5, opacity: 0.9, lineJoin: 'round', lineCap: 'round'}).addTo(map);
+        if (destinationMarker) map.removeLayer(destinationMarker);
+        destinationMarker = L.marker([toLat, toLng], {
+          icon: L.divIcon({
+            className: 'destination-flag',
+            html: '<div class="destination-flag">🚩</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
+          })
+        }).addTo(map);
+        var bounds = L.latLngBounds(coords);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+        return { distance: totalRouteDistance, duration: totalRouteTime, coords: coords, instructions: routeInstructions };
+      })
+      .catch(function(err) {
+        document.getElementById('loading').style.display = 'none';
+        console.error('[Route] OSRM error:', err);
+        throw err;
+      });
+  }
+
+  // ============================================================
+  // INIT ON LOAD
+  // ============================================================
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMap);
+  } else {
+    initMap();
+  }
+
+})();
+</script>
+</body>
+</html>

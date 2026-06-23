@@ -1,0 +1,5 @@
+MapLibre.xcframework/
+MapLibre.static.xcframework.zip
+build/*.ipa
+build/*.app
+.DS_Store
