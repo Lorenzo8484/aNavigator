@@ -1,73 +1,88 @@
-# scenekit-italy 🇮🇹
+# aNavigator 🗺️
 
-**Italia 3D con SceneKit** — Mappa 3D navigabile dell'Italia renderizzata con SceneKit su iOS.
+**Navigatore 2.5D per iOS** — Mappa con tilt, routing, e UI completa. MapLibre GL JS + OpenFreeMap vector tiles.
 
-Edifici, strade e terrain generati da dati OpenStreetMap (OSM) tramite preprocessor Python, visualizzati in 3D con tilt, rotazione e follow GPS.
+Zero API key. 100% gratuito. Build in WSL con clang-19.
+
+## Screenshot
+
+```
+         ╔═══════════════════════╗
+         ║     🧭  🌍  ⚙️       ║
+         ║     [  Cerca... ]    ║
+         ║                      ║
+         ║    ┌──────────────┐  ║
+         ║    │  🛣️ 2.5D Map │  ║
+         ║    │  pitch 50°   │  ║
+         ║    └──────────────┘  ║
+         ║                      ║
+         ║  📍   🚌   🔧      ║
+         ╚═══════════════════════╝
+```
+
+## Funzionalità
+
+- **Mappa 2.5D** con pitch 50°, rotazione
+- **Ricerca** indirizzi (Nominatim)
+- **Routing** turn-by-turn (OSRM)
+- **Navigazione vocale** (AVSpeechSynthesizer)
+- **Impostazioni** camera, voce, tema, testo
+- **Fermate autobus** da Overpass API
+- **Bussola** + **Tracking** posizione
+- **Log** debugging
+- **Niente edifici 3D** — stile pulito
 
 ## Architettura
 
 ```
-scenekit-italy/
-├── preprocessor/          # Python: OSM → mesh 3D
-│   ├── main.py            # CLI entry point
-│   ├── osm_fetcher.py     # Download dati OSM (Overpass API + osmnx)
-│   ├── building_processor.py  # Estrusione edifici 3D
-│   ├── road_processor.py  # Superfici stradali 3D
-│   ├── terrain_processor.py   # Piano terreno
-│   ├── texture_generator.py   # 4K texture atlas (4096×4096)
-│   ├── tile_exporter.py   # Export formato binario .stile
-│   └── config.py          # Configurazione colori, altezze, tile
-├── ios/                   # iOS app SceneKit
-│   ├── scenekit-italy/
-│   │   ├── Map3DViewController.mm  # ViewController principale
-│   │   ├── Scene3DEngine/
-│   │   │   ├── TileManager.mm      # Caricamento tile .stile
-│   │   │   ├── CameraController.mm # Camera 3D orbitale
-│   │   │   └── TextureAtlas.mm     # Texture 4K
-│   │   └── ...
-│   └── build_ipa.sh
-├── data/tiles/            # Tile .stile pre-processati
-└── assets/textures/       # Texture atlas 4K
+aNavigator/
+├── ios/
+│   ├── anavigatore/              # Sorgenti iOS
+│   │   ├── AppDelegate.h / .m
+│   │   ├── MapViewController.h / .mm   # Controller mappa
+│   │   ├── SettingsViewController.h / .mm
+│   │   ├── BusViewController.h / .mm
+│   │   ├── SettingsStore.h / .mm
+│   │   ├── LocalizationManager.h / .mm
+│   │   ├── main.m
+│   │   ├── Info.plist
+│   │   ├── map.html               # MapLibre GL JS
+│   │   ├── build_ipa.sh
+│   │   └── assets/                # 12 file (bus 3D, arrow, compass)
+│   └── build/                     # IPA output
+├── backup/
+│   └── v1.0/                      # File per ricompilazione
+├── README.md
+└── LICENSE.md
 ```
 
-## Formato Tile (.stile)
+## Tecnologie
 
-Formato binario compatto per mesh 3D:
-```
-Magic: "STIL" (4 bytes)
-Version: uint32
-NumBuildings: uint32
-[Per ogni edificio: centerLat, centerLon, vertices, normals, indices, colorRGB]
-NumRoads: uint32
-[Per ogni strada: stessa struttura + roadType string]
-```
+| Componente | Cosa usa |
+|------------|----------|
+| **Mappa** | [MapLibre GL JS](https://maplibre.org) + [OpenFreeMap](https://openfreemap.org) |
+| **Tile** | Vector tiles `.pbf` (gratis, no API key) |
+| **Ricerca** | [Nominatim](https://nominatim.org) (OpenStreetMap) |
+| **Routing** | [OSRM](https://project-osrm.org) |
+| **Autobus** | [Overpass API](https://overpass-api.de) |
+| **Voce** | AVSpeechSynthesizer |
+| **Build** | clang-19 + ld64.lld-19 + iPhoneOS16.5.sdk |
 
-## Requisiti
+## Requisiti Build
 
-### Preprocessor
-- Python 3.10+
-- `pip install -r preprocessor/requirements.txt`
-
-### iOS
-- Ubuntu + clang-19 + ld64.lld-19
-- iPhoneOS16.5.sdk
-- Script: `cd ios && ./build_ipa.sh <version>`
+- Ubuntu / WSL
+- `clang-19`, `ld64.lld-19`
+- `iPhoneOS16.5.sdk` in `/home/alina/sdk/`
+- `zip` o Python 3.x
 
 ## Build
 
 ```bash
-# Processa un tile
-cd preprocessor && python main.py --tile 44.49,11.34
-
-# Processa area Bologna
-cd preprocessor && python main.py --area bologna
-
-# Genera texture 4K
-cd preprocessor && python main.py --textures
-
-# Build IPA iOS
-cd ios && ./build_ipa.sh 1.0
+cd ios
+./build_ipa.sh 1.0
 ```
+
+Output: `ios/build/aNavigator_v1.0.ipa`
 
 ## Licenza
 
