@@ -8,12 +8,14 @@
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body,#map{width:100%;height:100%;background:#222;font-family:-apple-system,Helvetica,sans-serif}
+html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
 .maplibregl-ctrl-attrib{display:none!important}
 #map-scale{position:absolute;bottom:10px;left:10px;width:100px;height:12px;background:rgba(255,255,255,0.2);border-radius:4px;z-index:1000;display:none;text-align:center;font-size:9px;color:#fff;line-height:12px}
+#debug-text{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:#0f0;padding:6px 14px;border-radius:8px;font-size:14px;z-index:9999;font-family:monospace;text-align:center;pointer-events:none}
 </style>
 </head>
 <body>
+<div id="debug-text">INIZIO</div>
 <div id="map"></div>
 <script>
 // ===================================================================
@@ -152,16 +154,19 @@ function setMapType(type) {
     "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
     "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
   ];
+  document.getElementById('debug-text').textContent = 'setMapType(' + type + ')';
   var url = urls[type] || urls[0];
   try {
     var src = map.getSource('carto');
     if (src && typeof src.setTiles === 'function') {
+      document.getElementById('debug-text').textContent += ' setTiles OK';
       src.setTiles([url]);
     } else {
+      document.getElementById('debug-text').textContent += ' no setTiles, fallback';
       throw new Error('no setTiles');
     }
   } catch(e) {
-    // Fallback: remove + add source (funziona sempre)
+    document.getElementById('debug-text').textContent += ' fallback rm+add';
     try { map.removeLayer('carto-layer'); } catch(e2) {}
     try { map.removeSource('carto'); } catch(e2) {}
     map.addSource('carto', { type: 'raster', tiles: [url], tileSize: 256 });
@@ -173,8 +178,9 @@ function setMapType(type) {
   }
 }
 
-// Brightness slider: val=0.0-1.0, 0=normale 1=molto chiaro (ma non oltre)
+// Brightness slider: val=0.0-1.0, 0=normale 1=molto chiaro
 function setMapBrightness(val) {
+  document.getElementById('debug-text').textContent += ' BRIGHT:' + val.toFixed(2);
   var bright = 0.2 + val * 0.8;
   window._lastBrightness = bright;
   document.getElementById("map").style.filter = "brightness(" + bright + ")";
