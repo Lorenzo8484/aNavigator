@@ -1291,13 +1291,19 @@
     // === MAPPA ===
     // Dark mode override: if dark theme is active, use dark style regardless of mapType
     if (st.nightMode || st.darkTheme) {
-        [self.webView evaluateJavaScript:@"setMapType(1)" completionHandler:nil];
+        [self.webView evaluateJavaScript:@"setMapType(1)" completionHandler:^(id r, NSError *err) {
+            if (err) NSLog(@"setMapType(1) ERR: %@", err);
+        }];
     } else {
-        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapType(%ld)", (long)st.mapType] completionHandler:nil];
+        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapType(%ld)", (long)st.mapType] completionHandler:^(id r, NSError *err) {
+            if (err) NSLog(@"setMapType(%ld) ERR: %@", (long)st.mapType, err);
+        }];
     }
     
     // Mappa luminosita - from SettingsStore
-    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapBrightness(%f)", st.mapBrightness] completionHandler:nil];
+    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapBrightness(%f)", st.mapBrightness] completionHandler:^(id r, NSError *err) {
+        if (err) NSLog(@"setMapBrightness ERR: %@", err);
+    }];
     
     // POI Labels — toggle via MapLibre
     if ([st.poiLabels isEqualToString:@"Nessuna"]) {

@@ -18,6 +18,13 @@ html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,
 <div id="map"></div>
 <script>
 // ===================================================================
+// ERROR CATCHER — mostra errori JS nel debug text
+// ===================================================================
+window.onerror = function(msg, url, line) {
+  var el = document.getElementById('debug-text');
+  if (el) el.textContent = '❌ JS ERR: ' + msg + ' [line ' + line + ']';
+};
+// ===================================================================
 // CONFIG
 // ===================================================================
 const OSRM_URL = "https://router.project-osrm.org";
@@ -484,6 +491,8 @@ var _lastBrightness = 1.0;
 var _isDark = false;
 
 function setMapType(type) {
+  var el = document.getElementById("map");
+  if (!el) { document.getElementById('debug-text').textContent = '❌ ERR: #map non trovato'; return; }
   if (type === 1) {
     document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg) brightness(0.7)";
     _isDark = true;
