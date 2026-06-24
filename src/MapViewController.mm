@@ -1276,7 +1276,7 @@
 
 - (void)mapSettingsChanged {
     SettingsStore *st = [SettingsStore shared];
-    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"document.getElementById('debug-text').textContent='▶ SETTINGS: night=%d dark=%d type=%ld bright=%.2f'", st.nightMode, st.darkTheme, (long)st.mapType, st.mapBrightness] completionHandler:nil];
+    [self appLog:@"▶ SETTINGS: night=%d dark=%d type=%ld bright=%.2f", st.nightMode, st.darkTheme, (long)st.mapType, st.mapBrightness];
     [self applyAllSettings];
 }
 
@@ -1291,18 +1291,25 @@
     // === MAPPA ===
     // Dark mode override: if dark theme is active, use dark style regardless of mapType
     if (st.nightMode || st.darkTheme) {
+        [self appLog:@"→ setMapType(1) darkMode"];
         [self.webView evaluateJavaScript:@"setMapType(1)" completionHandler:^(id r, NSError *err) {
-            if (err) NSLog(@"setMapType(1) ERR: %@", err);
+            if (err) [self appLog:@"❌ setMapType(1) ERR: %@", err.localizedDescription];
+            else [self appLog:@"✓ setMapType(1) fatto"];
         }];
     } else {
-        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapType(%ld)", (long)st.mapType] completionHandler:^(id r, NSError *err) {
-            if (err) NSLog(@"setMapType(%ld) ERR: %@", (long)st.mapType, err);
+        long mt = (long)st.mapType;
+        [self appLog:@"→ setMapType(%ld) giorno", mt];
+        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapType(%ld)", mt] completionHandler:^(id r, NSError *err) {
+            if (err) [self appLog:@"❌ setMapType(%ld) ERR: %@", mt, err.localizedDescription];
+            else [self appLog:@"✓ setMapType(%ld) fatto", mt];
         }];
     }
     
     // Mappa luminosita - from SettingsStore
+    [self appLog:@"→ setMapBrightness(%.2f)", st.mapBrightness];
     [self.webView evaluateJavaScript:[NSString stringWithFormat:@"setMapBrightness(%f)", st.mapBrightness] completionHandler:^(id r, NSError *err) {
-        if (err) NSLog(@"setMapBrightness ERR: %@", err);
+        if (err) [self appLog:@"❌ setMapBrightness ERR: %@", err.localizedDescription];
+        else [self appLog:@"✓ setMapBrightness fatto"];
     }];
     
     // POI Labels — toggle via MapLibre
