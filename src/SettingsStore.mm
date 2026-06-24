@@ -131,6 +131,8 @@ static NSString* alertLevelName(AlertLevel a) {
         _busOffsetY = [ud floatForKey:@"set_busY"]; _busOffsetX = [ud floatForKey:@"set_busX"]; _busScale = [ud objectForKey:@"set_busS"] ? [ud floatForKey:@"set_busS"] : 1.0;
         _busRotation = [ud objectForKey:@"set_busR"] ? [ud floatForKey:@"set_busR"] : 0.0;
         _arrowRotation = [ud objectForKey:@"set_arrR"] ? [ud floatForKey:@"set_arrR"] : 0.0;
+        _mapBrightness = [ud floatForKey:@"set_mapBri"];
+        if (_mapBrightness <= 0.0) _mapBrightness = 1.0;
     }
 }
 @end

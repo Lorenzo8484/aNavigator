@@ -1275,6 +1275,8 @@
 }
 
 - (void)mapSettingsChanged {
+    SettingsStore *st = [SettingsStore shared];
+    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"document.getElementById('debug-text').textContent='▶ SETTINGS: night=%d dark=%d type=%ld bright=%.2f'", st.nightMode, st.darkTheme, (long)st.mapType, st.mapBrightness] completionHandler:nil];
     [self applyAllSettings];
 }
 
