@@ -47,7 +47,7 @@ var recalcLat = userLat, recalcLng = userLng;
 // ===================================================================
 var map = new maplibregl.Map({
   container: "map",
-  style: {"version":8,"sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap"}},"layers":[{"id":"osm-layer","type":"raster","source":"osm"}]},
+  style: "https://tiles.openfreemap.org/styles/liberty",
   center: [11.34, 44.49],
   zoom: 14,
   pitch: 50,
@@ -149,30 +149,27 @@ function animateCamera(lat, lng, zoom, bearing, pitch) {
 }
 
 function setMapType(type) {
-  // type: 0=giorno, 1=notte (CSS filter), 2=special
-  // Con OSM tiles raster, dark mode via CSS filter
+  // type: 0=giorno (liberty), 1=notte (CSS invert)
   if (type === 1) {
-    document.getElementById("map").style.filter = "brightness(0.7) invert(0.9) hue-rotate(180deg)";
+    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg)";
     window._isDark = true;
   } else {
-    document.getElementById("map").style.filter = window._lastBrightness !== undefined 
-      ? "brightness(" + window._lastBrightness + ")" 
-      : "brightness(1.0)";
+    document.getElementById("map").style.filter = "brightness(" + (window._lastBrightness||1.0) + ")";
     window._isDark = false;
   }
-  document.getElementById('debug-text').textContent = 'setMapType(' + type + ') ' + (type===1?'CSS DARK':'light') + ' BRIGHT:' + (window._lastBrightness||1.0).toFixed(2);
+  document.getElementById('debug-text').textContent = 'setMapType(' + type + ') ' + (type===1?'CSS DARK':'day') + ' br:' + (window._lastBrightness||1.0).toFixed(2);
 }
 
-// Brightness slider: val=0.0-1.0, 0=normale 1=molto chiaro
+// Brightness slider: val=0.0-1.0
 function setMapBrightness(val) {
-  document.getElementById('debug-text').textContent += ' BRIGHT:' + val.toFixed(2);
   var bright = 0.2 + val * 0.8;
   window._lastBrightness = bright;
   if (window._isDark) {
-    document.getElementById("map").style.filter = "brightness(" + (bright * 0.7) + ") invert(0.9) hue-rotate(180deg)";
+    document.getElementById("map").style.filter = "brightness(" + (bright*0.7) + ") invert(0.9) hue-rotate(180deg)";
   } else {
     document.getElementById("map").style.filter = "brightness(" + bright + ")";
   }
+  document.getElementById('debug-text').textContent += ' br:' + val.toFixed(2);
 }
 
 // ---- SEARCH (Nominatim) ----
