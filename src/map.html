@@ -47,7 +47,7 @@ var recalcLat = userLat, recalcLng = userLng;
 // ===================================================================
 var map = new maplibregl.Map({
   container: "map",
-  style: {"version":8,"sources":{"carto":{"type":"raster","tiles":["https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"],"tileSize":256}},"layers":[{"id":"carto-layer","type":"raster","source":"carto"}]},
+  style: {"version":8,"sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap"}},"layers":[{"id":"osm-layer","type":"raster","source":"osm"}]},
   center: [11.34, 44.49],
   zoom: 14,
   pitch: 50,
@@ -149,33 +149,18 @@ function animateCamera(lat, lng, zoom, bearing, pitch) {
 }
 
 function setMapType(type) {
-  var urls = [
-    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-  ];
-  document.getElementById('debug-text').textContent = 'setMapType(' + type + ')';
-  var url = urls[type] || urls[0];
-  try {
-    var src = map.getSource('carto');
-    if (src && typeof src.setTiles === 'function') {
-      document.getElementById('debug-text').textContent += ' setTiles OK';
-      src.setTiles([url]);
-    } else {
-      document.getElementById('debug-text').textContent += ' no setTiles, fallback';
-      throw new Error('no setTiles');
-    }
-  } catch(e) {
-    document.getElementById('debug-text').textContent += ' fallback rm+add';
-    try { map.removeLayer('carto-layer'); } catch(e2) {}
-    try { map.removeSource('carto'); } catch(e2) {}
-    map.addSource('carto', { type: 'raster', tiles: [url], tileSize: 256 });
-    map.addLayer({ id: 'carto-layer', type: 'raster', source: 'carto' });
+  // type: 0=giorno, 1=notte (CSS filter), 2=special
+  // Con OSM tiles raster, dark mode via CSS filter
+  if (type === 1) {
+    document.getElementById("map").style.filter = "brightness(0.7) invert(0.9) hue-rotate(180deg)";
+    window._isDark = true;
+  } else {
+    document.getElementById("map").style.filter = window._lastBrightness !== undefined 
+      ? "brightness(" + window._lastBrightness + ")" 
+      : "brightness(1.0)";
+    window._isDark = false;
   }
-  // Re-apply brightness after tile change
-  if (window._lastBrightness !== undefined) {
-    document.getElementById("map").style.filter = "brightness(" + window._lastBrightness + ")";
-  }
+  document.getElementById('debug-text').textContent = 'setMapType(' + type + ') ' + (type===1?'CSS DARK':'light') + ' BRIGHT:' + (window._lastBrightness||1.0).toFixed(2);
 }
 
 // Brightness slider: val=0.0-1.0, 0=normale 1=molto chiaro
@@ -183,7 +168,11 @@ function setMapBrightness(val) {
   document.getElementById('debug-text').textContent += ' BRIGHT:' + val.toFixed(2);
   var bright = 0.2 + val * 0.8;
   window._lastBrightness = bright;
-  document.getElementById("map").style.filter = "brightness(" + bright + ")";
+  if (window._isDark) {
+    document.getElementById("map").style.filter = "brightness(" + (bright * 0.7) + ") invert(0.9) hue-rotate(180deg)";
+  } else {
+    document.getElementById("map").style.filter = "brightness(" + bright + ")";
+  }
 }
 
 // ---- SEARCH (Nominatim) ----
