@@ -8,11 +8,13 @@
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body,#map{width:100%;height:100%;background:#222;font-family:-apple-system,Helvetica,sans-serif}
+html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
 .maplibregl-ctrl-attrib{display:none!important}
+#debug-text{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:#0f0;padding:6px 14px;border-radius:8px;font-size:14px;z-index:9999;font-family:monospace;text-align:center;pointer-events:none}
 </style>
 </head>
 <body>
+<div id="debug-text">INIZIO</div>
 <div id="map"></div>
 <script>
 // ===================================================================
@@ -40,7 +42,7 @@ var _destLat = null, _destLon = null, _destName = "";
 var recalcLat = userLat, recalcLng = userLng;
 
 // ===================================================================
-// MAPLIBRE GL JS — con stile OpenFreeMap (COME V1.6)
+// MAPLIBRE GL JS — con stile OpenFreeMap
 // ===================================================================
 var map = new maplibregl.Map({
   container: "map",
@@ -121,65 +123,38 @@ function setMapTilt(pitch) {
   map.easeTo({pitch:pitch, duration:300});
 }
 
-function animateCamera(lat, lng, zoom, bearing, pitch) {
-  map.easeTo({
-    center: [lng, lat],
-    zoom: zoom,
-    bearing: bearing,
-    pitch: pitch,
-    duration: 300
-  });
-}
-
-// ---- MAP TYPE (COME V1.6: stesso stile, + CSS dark mode) ----
 function setMapType(type) {
-  // type: 0=giorno (liberty), 1=notte (CSS invert), 2=satellite (liberty)
-  if (type == 1) {
-    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg)";
-    window._isDark = true;
+  // type: 0=default, 1=dark, 2=satellite
+  // For MapLibre we keep the same style since it's dark-themed
+  if (type == 2) {
+    map.setStyle("https://tiles.openfreemap.org/styles/liberty");
   } else {
-    document.getElementById("map").style.filter = "brightness(" + (window._lastBrightness||1.0) + ")";
-    window._isDark = false;
+    map.setStyle("https://tiles.openfreemap.org/styles/liberty");
   }
-  // Re-hide buildings if style reloads
+  // Re-hide buildings
   map.once("style.load", function() {
     try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
   });
 }
 
-// ---- BRIGHTNESS (CSS filter) ----
-function setMapBrightness(val) {
-  var bright = 0.2 + val * 0.8;
-  window._lastBrightness = bright;
-  if (window._isDark) {
-    document.getElementById("map").style.filter = "brightness(" + (bright*0.7) + ") invert(0.9) hue-rotate(180deg)";
-  } else {
-    document.getElementById("map").style.filter = "brightness(" + bright + ")";
-  }
-}
-
 // ---- SEARCH (Nominatim) ----
 function nativeSearchOSM(query) {
-  var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query) + '&limit=50&addressdetails=1';
-  fetch(url, { headers: { 'Accept': 'application/json', 'User-Agent': 'aNavigator/2.0 (iOS)' } })
+  var url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query) + '&limit=10';
+  fetch(url, { headers: { 'Accept': 'application/json' } })
     .then(function(response) {
       if (!response.ok) return [];
       return response.json();
     })
     .then(function(data) {
-      // Sort by distance from current position
-      var sorted = data.map(function(item) {
-        var d = distance(userLat, userLng, parseFloat(item.lat), parseFloat(item.lon));
+      var results = data.map(function(item) {
         return {
           name: item.display_name ? item.display_name.split(',')[0] : (item.name || 'Unknown'),
           lat: parseFloat(item.lat),
           lon: parseFloat(item.lon),
-          full: item.display_name || item.name || '',
-          dist: d
+          full: item.display_name || item.name || ''
         };
       });
-      sorted.sort(function(a, b) { return a.dist - b.dist; });
-      try { webkit.messageHandlers.searchResults.postMessage(sorted); } catch(e) {}
+      try { webkit.messageHandlers.searchResults.postMessage(results); } catch(e) {}
     })
     .catch(function(err) {
       try { webkit.messageHandlers.searchResults.postMessage([]); } catch(e) {}
@@ -187,7 +162,9 @@ function nativeSearchOSM(query) {
 }
 // ---- ROUTING (OSRM) ----
 function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
+  // Save destination for recalculation
   _destLat = toLat; _destLon = toLng; _destName = name || "";
+  // Remove old route
   clearRoute();
   clearDestination();
   
@@ -203,10 +180,11 @@ function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
       }
       var route = data.routes[0];
       navRoute = route.geometry;
-      navCoords = route.geometry.coordinates.slice();
+      navCoords = route.geometry.coordinates.slice(); // [lng, lat]
       navDistance = route.distance;
       navETA = route.duration;
       
+      // Draw route line
       map.addLayer({
         id: "route-line",
         type: "line",
@@ -214,79 +192,86 @@ function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
         paint: {"line-color":"#4488ff","line-width":6,"line-opacity":0.8}
       });
       
+      // Add destination marker
       var el = document.createElement("div");
       el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e74c3c;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)";
       markerDest = new maplibregl.Marker({element:el,anchor:"center"})
         .setLngLat([toLng, toLat])
         .addTo(map);
       
+      // Fly to fit route
       var bounds = new maplibregl.LngLatBounds();
       route.geometry.coordinates.forEach(function(c) { bounds.extend(c); });
       map.fitBounds(bounds, {padding:80, pitch:50});
       
-      var result = JSON.stringify({distance: route.distance,duration: route.duration,name: name || ""});
+      // Return route info as JSON string
+      var result = JSON.stringify({
+        distance: route.distance,
+        duration: route.duration,
+        name: name || ""
+      });
       return result;
     });
 }
 
 function startNavigation() {
   isNavigating = true;
+  // Start nav timer for updates
   if (navTimer) clearInterval(navTimer);
-  navTimer = setInterval(function() { navTick(); }, 1000);
+  navTimer = setInterval(function() {
+    navTick();
+  }, 1000); // every second
 }
 
 function navTick() {
   if (!isNavigating || !hasGps) return;
-
+  
   if (navCoords.length < 2) {
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navigationEnd)
-      window.webkit.messageHandlers.navigationEnd.postMessage("");
     endNavigation();
     return;
   }
   
+  // Find closest point on route
   var closest = null, minDist = Infinity;
   for (var i = 0; i < navCoords.length; i++) {
     var d = distance(userLat, userLng, navCoords[i][1], navCoords[i][0]);
     if (d < minDist) { minDist = d; closest = i; }
   }
   
+  // Trim passed points
   if (closest > 3) navCoords = navCoords.slice(closest);
   
+  // Calculate remaining distance
   var remaining = 0;
   for (var j = 1; j < navCoords.length; j++) {
     remaining += distance(navCoords[j-1][1], navCoords[j-1][0], navCoords[j][1], navCoords[j][0]);
   }
   
-  var speedKmh = 0;
-  if (window._prevLat !== undefined && window._prevLng !== undefined) {
-    var dx = userLng - window._prevLng;
-    var dy = userLat - window._prevLat;
-    var d = Math.sqrt(dx*dx + dy*dy) * 111320;
-    speedKmh = d * 3.6;
-    if (speedKmh > 200) speedKmh = 0;
-  }
-  window._prevLat = userLat;
-  window._prevLng = userLng;
-  navSpeed = speedKmh;
-
-  navDistance = remaining;
-
+  // Get instruction
   var instruction = getInstruction(navCoords);
-
-  var hasArrived = (navCoords.length < 2 && remaining < 30);
-
+  
+  // Check arrival
+  if (navCoords.length < 2 && remaining < 30) {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navigationEnd)
+      window.webkit.messageHandlers.navigationEnd.postMessage("");
+    return;
+  }
+  
+  navDistance = remaining;
+  
+  // Send nav update to ObjC
   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navUpdate) {
     var update = JSON.stringify({
       instruction: instruction,
       distance: remaining,
-      eta: remaining / 13.9,
+      eta: remaining / 13.9, // ~50 km/h average
       speed: navSpeed,
-      arrived: hasArrived
+      arrived: false
     });
     window.webkit.messageHandlers.navUpdate.postMessage(update);
   }
   
+  // Check for off-route (>30m from route)
   if (minDist > 30 && navCoords.length > 2) {
     if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.error)
       window.webkit.messageHandlers.error.postMessage("Fuori rotta, ricalcolo...");
@@ -325,6 +310,7 @@ function clearDestination() {
 }
 
 function recalculateRoute() {
+  // Recalculate route from current position to saved destination
   if (_destLat === null || _destLon === null) return;
   clearRoute();
   clearDestination();
@@ -342,17 +328,20 @@ function recalculateRoute() {
       navCoords = route.geometry.coordinates.slice();
       navDistance = route.distance;
       navETA = route.duration;
+      // Draw new route line
       map.addLayer({
         id: "route-line",
         type: "line",
         source: {type:"geojson",data:{type:"Feature",geometry:route.geometry}},
         paint: {"line-color":"#4488ff","line-width":6,"line-opacity":0.8}
       });
+      // Add destination marker
       var el = document.createElement("div");
       el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e74c3c;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)";
       markerDest = new maplibregl.Marker({element:el,anchor:"center"})
         .setLngLat([_destLon, _destLat])
         .addTo(map);
+      // Fit bounds
       var bounds = new maplibregl.LngLatBounds();
       route.geometry.coordinates.forEach(function(c) { bounds.extend(c); });
       map.fitBounds(bounds, {padding:80, pitch:50});
@@ -369,16 +358,20 @@ function snapToRoute(lat, lng) {
     var d = distance(lat, lng, navCoords[i][1], navCoords[i][0]);
     if (d < minDist) { minDist = d; closest = navCoords[i]; }
   }
+  // Return snapped coordinate
   return JSON.stringify({lat:closest[1], lon:closest[0]});
+  // Also return distance for off-route detection
 }
 
 function coordinateAheadOnRoute(lat, lng, meters) {
   if (!navCoords || navCoords.length < 2) return JSON.stringify({lat:lat, lon:lng});
+  // Find closest point index
   var closest = 0, minDist = Infinity;
   for (var i = 0; i < navCoords.length; i++) {
     var d = distance(lat, lng, navCoords[i][1], navCoords[i][0]);
     if (d < minDist) { minDist = d; closest = i; }
   }
+  // Walk along route for `meters`
   var accumulated = 0;
   for (var j = closest + 1; j < navCoords.length; j++) {
     var seg = distance(navCoords[j-1][1], navCoords[j-1][0], navCoords[j][1], navCoords[j][0]);
@@ -387,6 +380,7 @@ function coordinateAheadOnRoute(lat, lng, meters) {
       return JSON.stringify({lat:navCoords[j][1], lon:navCoords[j][0]});
     }
   }
+  // If we reached the end, return last point
   var last = navCoords[navCoords.length - 1];
   return JSON.stringify({lat:last[1], lon:last[0]});
 }
@@ -419,6 +413,7 @@ function getMapBounds() {
 function busStopsFromJSON(jsonStr) {
   try {
     var stops = JSON.parse(jsonStr);
+    // Remove old stop markers
     if (window._busStopMarkers) {
       window._busStopMarkers.forEach(function(m) { m.remove(); });
     }
@@ -451,6 +446,7 @@ function busStopsSetVisible(visible) {
   }
 }
 
+// ---- GPS SPEED UPDATE (called from navTick) ----
 function setSpeed(speedKmh) {
   navSpeed = speedKmh;
 }
@@ -480,6 +476,34 @@ map.on("load", function() {
   map.flyTo({center:[11.34, 44.49], zoom:14, pitch:50});
   console.log("MapLibre ready");
 });
+
+// ===================================================================
+// FUNZIONI CHIAMATE DA OBJC (impostazioni mappa)
+// ===================================================================
+var _lastBrightness = 1.0;
+var _isDark = false;
+
+function setMapType(type) {
+  if (type === 1) {
+    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg)";
+    _isDark = true;
+  } else {
+    document.getElementById("map").style.filter = "brightness(" + _lastBrightness + ")";
+    _isDark = false;
+  }
+  document.getElementById('debug-text').textContent = 'setMapType(' + type + ') ' + (type===1?'DARK':'day') + ' br:' + _lastBrightness.toFixed(2);
+}
+
+function setMapBrightness(val) {
+  var bright = 0.2 + val * 0.8;
+  _lastBrightness = bright;
+  if (_isDark) {
+    document.getElementById("map").style.filter = "brightness(" + (bright*0.7) + ") invert(0.9) hue-rotate(180deg)";
+  } else {
+    document.getElementById("map").style.filter = "brightness(" + bright + ")";
+  }
+  document.getElementById('debug-text').textContent += ' br:' + val.toFixed(2);
+}
 </script>
 </body>
 </html>

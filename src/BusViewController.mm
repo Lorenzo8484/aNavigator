@@ -208,16 +208,11 @@ static const CGFloat kCameraFOV         = 50.0;   // field of view verticale
     // Distanza camera FISSA
     CGFloat camDist = 5.5;
 
-    // Rapporto d'aspetto dello schermo
-    CGFloat aspect = self.scnView.bounds.size.width / MAX(self.scnView.bounds.size.height, 1);
+    // Larghezza 3D visibile a questa distanza
+    CGFloat visibleW = 2.0 * camDist * tan(fovRad);
 
-    // Altezza 3D visibile a questa distanza (FOV verticale)
-    CGFloat visibleH = 2.0 * camDist * tan(fovRad);
-    // Larghezza 3D visibile = altezza × aspect ratio
-    CGFloat visibleW = visibleH * aspect;
-
-    // Bus riempie il 90% della LARGHEZZA visibile
-    CGFloat targetW = visibleW * 0.90;
+    // Bus riempie il 180% della LARGHEZZA visibile (quasi 2x rispetto a prima)
+    CGFloat targetW = visibleW * 1.80;
     CGFloat scale = targetW / self.rawWidth;
     
     // Applica scala utente da Impostazioni
