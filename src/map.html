@@ -485,10 +485,10 @@ var _isDark = false;
 
 function setMapType(type) {
   if (type === 1) {
-    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg)";
+    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg) brightness(0.7)";
     _isDark = true;
   } else {
-    document.getElementById("map").style.filter = "brightness(" + _lastBrightness + ")";
+    document.getElementById("map").style.filter = "";
     _isDark = false;
   }
   document.getElementById('debug-text').textContent = 'setMapType(' + type + ') ' + (type===1?'DARK':'day') + ' br:' + _lastBrightness.toFixed(2);
