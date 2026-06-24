@@ -81,6 +81,7 @@
     [NSTimer scheduledTimerWithTimeInterval:2.0 target:self selector:@selector(speakCurrentInstruction) userInfo:nil repeats:YES];
     
     [self applyCameraSettings];
+    [self applyAllSettings];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -1030,6 +1031,7 @@
         }];
     
     [self applyCameraSettings];
+    [self applyAllSettings];
 }
 
 - (void)updateNavUI {
