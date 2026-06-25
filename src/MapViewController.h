@@ -31,7 +31,7 @@ typedef NS_ENUM(NSInteger, AlertLevel) {
 @property (nonatomic) CGFloat cameraAltitude;
 @property (nonatomic) CGFloat cameraPitch;
 @property (nonatomic) CGFloat cameraOffset;
-@property (nonatomic) CGFloat cameraHeadingOffset;
+@property (nonatomic) CGFloat cameraVerticalOffset;
 
 // UI opacity
 @property (nonatomic) CGFloat menuOpacity;

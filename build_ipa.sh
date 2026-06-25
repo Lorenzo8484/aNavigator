@@ -14,6 +14,18 @@ SDK="${SDK:-/home/alina/sdk/iPhoneOS16.5.sdk}"
 echo "🔨 Building aNavigator v$VERSION..."
 echo "   SDK: $SDK"
 
+# Aggiorna versione in src/Info.plist per backup corretti
+python3 -c "
+import plistlib
+path = '$SRC_DIR/Info.plist'
+with open(path, 'rb') as f:
+    pl = plistlib.load(f)
+pl['CFBundleShortVersionString'] = '$VERSION'
+pl['CFBundleVersion'] = '$VERSION'
+with open(path, 'wb') as f:
+    plistlib.dump(pl, f)
+"
+
 BUILD_TMP=$(mktemp -d)
 OBJ_DIR="$BUILD_TMP/objects"
 APP_DIR="$BUILD_TMP/aNavigator.app"
@@ -63,6 +75,12 @@ echo "📱 Creating .app bundle..."
 cp "$SRC_DIR/Info.plist" "$APP_DIR/"
 cp "$SRC_DIR/map.html" "$APP_DIR/"
 
+# Copy lib/ files (MapLibre locale)
+if [ -d "$SRC_DIR/lib" ]; then
+    mkdir -p "$APP_DIR/lib"
+    cp "$SRC_DIR/lib/"* "$APP_DIR/lib/" 2>/dev/null || true
+fi
+
 # Copy assets
 if [ -d "$PROJECT_DIR/assets" ]; then
     mkdir -p "$APP_DIR/assets"
@@ -78,9 +96,6 @@ fi
 if [ -d "$SRC_DIR/tiles" ]; then
     cp -r "$SRC_DIR/tiles" "$APP_DIR/" 2>/dev/null || true
 fi
-
-plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_DIR/Info.plist" 2>/dev/null || true
-plutil -replace CFBundleVersion -string "$VERSION" "$APP_DIR/Info.plist" 2>/dev/null || true
 
 echo "📦 Creating IPA..."
 mkdir -p "$BUILD_DIR" "$BUILD_TMP/Payload"
@@ -102,3 +117,19 @@ rm -rf "$BUILD_TMP"
 echo "✅ Build completata!"
 echo "   IPA: $BUILD_DIR/aNavigator_v$VERSION.ipa"
 ls -lh "$BUILD_DIR/aNavigator_v$VERSION.ipa"
+
+echo "📂 Backup automatico in backup/v$VERSION/..."
+BACKUP_DIR="$PROJECT_DIR/backup/v$VERSION"
+mkdir -p "$BACKUP_DIR"
+cp "$SRC_DIR"/*.m "$BACKUP_DIR/" 2>/dev/null || true
+cp "$SRC_DIR"/*.mm "$BACKUP_DIR/" 2>/dev/null || true
+cp "$SRC_DIR"/*.html "$BACKUP_DIR/" 2>/dev/null || true
+cp "$SRC_DIR"/*.js "$BACKUP_DIR/" 2>/dev/null || true
+cp "$SRC_DIR"/Info.plist "$BACKUP_DIR/" 2>/dev/null || true
+echo "   Backup locale completato: $BACKUP_DIR"
+
+echo "☁️  Push su GitHub..."
+cd "$PROJECT_DIR"
+git add "backup/v$VERSION/" 2>/dev/null || true
+git commit -m "Backup v$VERSION" 2>/dev/null || echo "   Niente da committare"
+git push origin master 2>/dev/null && echo "   ✅ Push GitHub OK" || echo "   ⚠️ Push GitHub fallito (forse rete offline)"

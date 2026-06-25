@@ -52,6 +52,11 @@
 // Freccia
 @property (nonatomic) float arrowRotation; // -180° a +180° (default 0)
 
+// Destinazioni recenti
+- (NSArray<NSDictionary *> *)recentDestinations;
+- (void)addRecentDestination:(NSDictionary *)dest;
+- (void)clearRecentDestinations;
+
 - (void)save;
 - (void)load;
 @end
