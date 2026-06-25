@@ -126,10 +126,11 @@ cp "$SRC_DIR"/*.mm "$BACKUP_DIR/" 2>/dev/null || true
 cp "$SRC_DIR"/*.html "$BACKUP_DIR/" 2>/dev/null || true
 cp "$SRC_DIR"/*.js "$BACKUP_DIR/" 2>/dev/null || true
 cp "$SRC_DIR"/Info.plist "$BACKUP_DIR/" 2>/dev/null || true
-echo "   Backup locale completato: $BACKUP_DIR"
+echo "   Backup locale: $BACKUP_DIR"
 
-echo "☁️  Push su GitHub..."
+echo "☁️  Push backup su GitHub..."
 cd "$PROJECT_DIR"
 git add "backup/v$VERSION/" 2>/dev/null || true
 git commit -m "Backup v$VERSION" 2>/dev/null || echo "   Niente da committare"
-git push origin master 2>/dev/null && echo "   ✅ Push GitHub OK" || echo "   ⚠️ Push GitHub fallito (forse rete offline)"
+git push origin master 2>/dev/null && echo "   ✅ GitHub push OK" || echo "   ⚠️ GitHub push fallito (rete?)"
+echo "   ✅ Backup su GitHub completato!"
