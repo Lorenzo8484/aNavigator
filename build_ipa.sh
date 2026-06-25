@@ -132,5 +132,5 @@ echo "☁️  Push backup su GitHub..."
 cd "$PROJECT_DIR"
 git add "backup/v$VERSION/" 2>/dev/null || true
 git commit -m "Backup v$VERSION" 2>/dev/null || echo "   Niente da committare"
-git push origin master 2>/dev/null && echo "   ✅ GitHub push OK" || echo "   ⚠️ GitHub push fallito (rete?)"
+git push origin main 2>/dev/null && echo "   ✅ GitHub push OK" || echo "   ⚠️ GitHub push fallito (rete?)"
 echo "   ✅ Backup su GitHub completato!"
