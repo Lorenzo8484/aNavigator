@@ -7,18 +7,13 @@
 <script src="lib/maplibre-gl.js"></script>
 <link href="lib/maplibre-gl.css" rel="stylesheet"/>
 <style>
-|*{margin:0;padding:0;box-sizing:border-box}
+*{margin:0;padding:0;box-sizing:border-box}
 html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
 .maplibregl-ctrl-attrib{display:none!important}
-#diagnostic-crosshair{position:fixed;left:50%;top:35%;width:40px;height:40px;transform:translate(-50%,-50%);z-index:99999;pointer-events:none;opacity:0.8}
-#diagnostic-crosshair::before,#diagnostic-crosshair::after{content:'';position:absolute;background:red}
-#diagnostic-crosshair::before{width:2px;height:40px;left:19px;top:0}
-#diagnostic-crosshair::after{width:40px;height:2px;left:0;top:19px}
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div id="diagnostic-crosshair"></div>
 <script>
 // ===================================================================
 // LOG HELPER — invia log al pannello log integrato (ObjC)
@@ -50,7 +45,6 @@ var navInstruction = "";
 var navDistance = 0;
 var navETA = 0;
 var navSpeed = 0;
-var markerArrow = null;
 var markerDest = null;
 var navTimer = null;
 var hasGps = false;
@@ -88,88 +82,98 @@ if (map) {
 // FUNZIONI CHIAMATE DA OBJC (via evaluateJavaScript)
 // ===================================================================
 
-// ---- POSITION ----
-var markerArrow = null;
-// Offset centro mappa per far sembrare freccia in basso (3rd-person)
-var _arrowScreenY = 0.35; // 35% dall'alto = freccia in basso
+// ---- POSITION + ROTATION (MapLibre Symbol Layer — renderizzato da MapLibre nel SUO ciclo 60fps) ----
+// Niente DOM, niente CSS, niente Marker. L'icona è renderizzata NELLO stesso passaggio delle tiles.
+var _arrowLayerAdded = false;
 
-var _posLogCounter = 0;
-function updatePosition(lat, lng) {
-  userLat = lat; userLng = lng;
-  recalcLat = lat; recalcLng = lng;
-  _posLogCounter++;
-  if (!markerArrow) {
-    // Create an arrow-shaped marker
-    var el = document.createElement("div");
-    el.style.cssText = "width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:24px solid #4488ff;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5));position:absolute;pointer-events:none;z-index:10000;will-change:transform";
-    // White dot in center
-    var dot = document.createElement("div");
-    dot.style.cssText = "position:absolute;top:4px;left:-4px;width:8px;height:8px;border-radius:50%;background:#fff;pointer-events:none";
-    el.appendChild(dot);
-    document.getElementById("map").appendChild(el);
-    markerArrow = el;
-  }
-  hasGps = true;
-  // Navigazione: freccia FISSA al centro CSS (stabile). Camera centrata sul GPS (offset=0).
-  // Non navigazione: project() per seguire GPS sulla mappa.
-  if (isNavigating) {
-    if (markerArrow.style.left !== "50%" || markerArrow.style.top !== "35%") {
-      if (_posLogCounter % 10 === 1) appLog("🔧 updatePos: fix CSS center (was: " + markerArrow.style.left + "," + markerArrow.style.top + ")");
-      markerArrow.style.left = "50%";
-      markerArrow.style.top = "35%";
-      markerArrow.style.transform = "translate(-50%,-50%)";
-    }
-    // In navigazione, logga solo ogni 30 chiamate per verificare stabilità
-    if (_posLogCounter % 30 === 1) appLog("🔧 updatePos: NAV → CSS center (fixed)");
-  } else {
-    var pt = map.project([lng, lat]);
-    markerArrow.style.left = pt.x + "px";
-    markerArrow.style.top = pt.y + "px";
-    markerArrow.style.transform = "translate(-50%,-50%)";
-    if (_posLogCounter % 30 === 1) appLog("🔧 updatePos: NO-NAV → project(" + pt.x.toFixed(0) + "," + pt.y.toFixed(0) + ")");
+function initArrowLayer() {
+  if (_arrowLayerAdded || !map || !map.isStyleLoaded()) return;
+  try {
+    // Disegna icona freccia su canvas → ImageData (dati pixel puri, nessun conflitto WebGL)
+    var c = document.createElement('canvas');
+    c.width = 36; c.height = 36;
+    var ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 36, 36);
+    // Freccia blu verso ALTO (nord) — la mappa ruota per seguire la rotta
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.moveTo(18, 2);    // punta
+    ctx.lineTo(30, 30);   // destra base
+    ctx.lineTo(18, 24);   // centro base (rientranza)
+    ctx.lineTo(6, 30);    // sinistra base
+    ctx.closePath();
+    ctx.fill();
+    // Cerchietto bianco al centro
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(18, 15, 5, 0, 2*Math.PI);
+    ctx.fill();
+    // Bordo
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    
+    var imageData = ctx.getImageData(0, 0, 36, 36);
+    map.addImage('car-arrow', imageData);
+    map.addSource('car-position', {
+      type: 'geojson',
+      data: {type: 'Feature', properties: {}, geometry: {type: 'Point', coordinates: [11.34, 44.49]}}
+    });
+    map.addLayer({
+      id: 'car-layer',
+      type: 'symbol',
+      source: 'car-position',
+      layout: {
+        'icon-image': 'car-arrow',
+        'icon-rotation-alignment': 'viewport',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-size': 1.2
+      }
+    });
+    _arrowLayerAdded = true;
+    appLog("✅ Arrow Symbol Layer inizializzato");
+  } catch(e) {
+    appLog("❌ initArrowLayer ERR: " + (e.message || e));
   }
 }
 
-// Aggiorna posizione freccia solo FUORI navigazione (durante nav: CSS fixed center)
-map.on("move", function() {
-  if (!markerArrow || !userLat || !userLng) return;
-  if (isNavigating) return; // navigazione: freccia CSS fixed, niente project()
-  var pt = map.project([userLng, userLat]);
-  markerArrow.style.left = pt.x + "px";
-  markerArrow.style.top = pt.y + "px";
-});
+// Chiamata da ObjC — aggiorna posizione GeoJSON + camera
+function smoothNavFrame(lat, lon, camLat, camLon, course, zoom, pitch) {
+  if (!_arrowLayerAdded) { initArrowLayer(); }
+  try {
+    map.getSource('car-position').setData({
+      type: 'Feature',
+      properties: {},
+      geometry: {type: 'Point', coordinates: [lon, lat]}
+    });
+  } catch(e) {}
+  try {
+    map.easeTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50, duration:200});
+  } catch(e) {}
+}
+
+// Chiamato da ObjC per navigazione reale
+function updatePosition(lat, lng) {
+  userLat = lat; userLng = lng; recalcLat = lat; recalcLng = lng;
+  if (!_arrowLayerAdded) { initArrowLayer(); }
+  try { map.getSource('car-position').setData({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[lng,lat]}}); } catch(e) {}
+  hasGps = true;
+}
+
+function animateCamera(lat, lng, zoom, bearing, pitch) {
+  try { map.easeTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50, duration:200}); } catch(e) {}
+}
 
 function centerOnUser() {
   if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50, bearing:userCourse});
 }
 
-// Smooth rotazione per evitare scatti in curva
-var _smoothHeading = 0;
-var _hasSmoothHeading = false;
-var _rotLogCounter = 0;
 function updateArrowRotation(heading, cameraHeading, offset) {
-  // Rotate the arrow marker based on heading, camera heading and offset
-  if (!markerArrow) return;
-  // Smooth lerp: converge gradualmente alla nuova direzione
-  _rotLogCounter++;
-  if (!_hasSmoothHeading) {
-    _smoothHeading = heading;
-    _hasSmoothHeading = true;
-  } else {
-    var diff = heading - _smoothHeading;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    _smoothHeading += diff * 0.5; // converge in ~2 frame a 60fps — curve più reattive
-  }
-  var angle = _smoothHeading;
-  if (cameraHeading) angle = angle - cameraHeading;
-  angle += offset || 0;
-  markerArrow.style.transform = "translate(-50%,-50%) rotate(" + angle + "deg)";
-  if (_rotLogCounter % 5 === 1) appLog("🔄 arrowRot #" + _rotLogCounter + " → raw=" + heading.toFixed(0) + " smooth=" + _smoothHeading.toFixed(0) + " cam=" + (cameraHeading||0).toFixed(0) + " final=" + angle.toFixed(0));
+  // Symbol layer icon-rotation-alignment=viewport, so arrow always points up on screen
 }
 
 function updateCompass(heading) {
-  // Compass is handled natively in ObjC with compass.png
 }
 
 // ---- CAMERA ----
@@ -185,22 +189,9 @@ function setMapTilt(pitch) {
   map.easeTo({pitch:pitch, duration:300});
 }
 
-
-// ---- CAMERA 5fps (sim) / 1-5fps (GPS) — come v3.88 ----
-var _lastCamLat = 0, _lastCamLng = 0;
-var _camLogCounter = 0;
 function animateCamera(lat, lng, zoom, bearing, pitch) {
-  _camLogCounter++;
-  // Logga ogni 3 chiamate per non floodare
-  if (_camLogCounter % 3 === 1) {
-    var dLat = _lastCamLat ? (lat - _lastCamLat) * 111320 : 0;
-    var dLng = _lastCamLng ? (lng - _lastCamLng) * 111320 * Math.cos(lat * Math.PI / 180) : 0;
-    var dist = Math.sqrt(dLat*dLat + dLng*dLng);
-    appLog("📷 animateCamera #" + _camLogCounter + " → d=" + dist.toFixed(3) + "m, zoom=" + zoom.toFixed(1) + ", bearing=" + (bearing||0).toFixed(0));
-  }
-  _lastCamLat = lat;
-  _lastCamLng = lng;
-  map.easeTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50, duration:16});
+  appLog("animateCamera: center=" + lat.toFixed(4)+","+lng.toFixed(4)+" zoom="+zoom.toFixed(1)+" bearing="+(bearing||0).toFixed(0));
+  map.jumpTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50});
 }
 
 function setMapType(type) {
@@ -769,6 +760,8 @@ function bearing(lat1, lng1, lat2, lng2) {
 // ===================================================================
 if (map) {
   map.on("load", function() {
+    // Inizializza Symbol Layer freccia SUBITO (MapLibre deve avere lo style loaded)
+    initArrowLayer();
     map.flyTo({center:[11.34, 44.49], zoom:14, pitch:50});
     appLog("✓ Mappa pronta (OpenFreeMap liberty, zoom 14)");
     // Ottieni città utente subito (così è pronta per la ricerca)

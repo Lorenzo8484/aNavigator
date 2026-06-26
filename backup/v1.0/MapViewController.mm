@@ -37,6 +37,8 @@
     NSArray *_simCoords; // array di {lat, lon}
     NSInteger _simIndex;
     double _simStepPerTick; // metri per tick simulazione
+    double _simLat, _simLon, _simCourse; // posizione interpolata (scritta da simTick, letta da smoothTick)
+    BOOL _hasSimPos;
     int _posUpdateCounter; // contatore per updatePosition (ogni 6 tick = ~100ms)
     // Movimento fluido (20 fps)
     BOOL _isInterpolating;
@@ -824,6 +826,8 @@
 #pragma mark - Camera
 
 - (void)applyCameraSettings {
+    // Durante simulazione: smoothTick gestisce camera a 60fps. Non usare _lastLocation STALE.
+    if (_isSimulating) return;
     CLLocationCoordinate2D centerCoord = _lastLocation ? _lastLocation.coordinate : CLLocationCoordinate2DMake(44.49, 11.34);
     [self appLog:@"   applyCameraSettings: _lastLocation=%.6f,%.6f (nav=%d)", centerCoord.latitude, centerCoord.longitude, self.isNavigating];
     [self applyCameraSettingsWithCoord:centerCoord];
@@ -864,20 +868,15 @@
     double lonPerMeter = 1.0 / (111320.0 * cos(centerCoord.latitude * M_PI / 180.0));
     
     CLLocationCoordinate2D target;
-    if (self.isNavigating) {
-        // Navigazione: ZERO offset, camera centrata esattamente sul GPS
-        // Così la freccia (CSS fixed center) è ESATTAMENTE sul percorso
-        target = centerCoord;
-    } else {
-        // Fuori navigazione: offset per visuale 3D
-        double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
-        double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
-        double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
-        double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
-        target = CLLocationCoordinate2DMake(
-            centerCoord.latitude + latOffset + latVert,
-            centerCoord.longitude + lonOffset + lonVert);
-    }
+    // Sempre offset — anche in navigazione
+    // MapLibre Marker tiene la freccia al GPS, camera guarda avanti (Waze-style)
+    double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
+    double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
+    double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
+    double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
+    target = CLLocationCoordinate2DMake(
+        centerCoord.latitude + latOffset + latVert,
+        centerCoord.longitude + lonOffset + lonVert);
     [self appLog:@"   target: %.6f,%.6f (nav=%d offset=%d) +%.0fms", target.latitude, target.longitude, self.isNavigating, !self.isNavigating, deltaMs];
 
     // Altitudine dinamica in base alla velocità (solo in navigazione)
@@ -1100,23 +1099,46 @@
     _lastLocation = loc;
     _currentSpeed = 4.17;
     _currentCourse = course;
-    
-    // Camera ogni 12 TICK (~200ms = 5fps) — come v3.88, MapLibre respira
-    static int _camSimTick = 0;
-    _camSimTick++;
-    [self appLog:@"      📊 camSimTick=%d (chiamo camera? %@)", _camSimTick, (_camSimTick >= 12) ? @"SI" : @"NO"];
-    if (_camSimTick >= 12) {
-        _camSimTick = 0;
-        [self applyCameraSettings];
+
+    // TUTTO a 5fps, TUTTO in UNA evalJS
+    // In 184ms di pausa: freccia, rotazione, camera — TUTTO FERMO = ZERO BALLO
+    static int _updateTick = 0;
+    _updateTick++;
+    [self appLog:@"      📊 updateTick=%d (aggiorno? %@)", _updateTick, (_updateTick >= 12) ? @"SI" : @"NO"];
+    if (_updateTick >= 12) {
+        _updateTick = 0;
+        
+        // Pre-computa target camera (offset attivo anche in navigazione)
+        CLLocationDirection heading = course;
+        double headingRad = heading * M_PI / 180.0;
+        double latPerMeter = 1.0 / 111320.0;
+        double lonPerMeter = 1.0 / (111320.0 * cos(lat * M_PI / 180.0));
+        double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
+        double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
+        double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
+        double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
+        double camLat = lat + latOffset + latVert;
+        double camLon = lon + lonOffset + lonVert;
+        
+        // Altitudine dinamica
+        double speedKmh = _currentSpeed * 3.6;
+        double factor = 1.0 + MAX(0, (speedKmh - 40.0) / 160.0) * 2.0;
+        factor = MIN(factor, 3.0);
+        double effectiveAltitude = self.cameraAltitude * factor;
+        double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
+        
+        // UNA sola evalJS — tutto sincrono
+        NSString *combinedJS = [NSString stringWithFormat:
+            @"updatePosition(%f,%f);updateArrowRotation(%f,%f,%f);animateCamera(%f,%f,%f,%f,%f);",
+            lat, lon,
+            course, heading, [SettingsStore shared].arrowRotation,
+            camLat, camLon, zoom,
+            heading,
+            self.cameraPitch];
+        [self.webView evaluateJavaScript:combinedJS completionHandler:^(id r, NSError *e) {
+            if (e) [self appLog:@"❌ combinedJS ERR: %@", e.localizedDescription];
+        }];
     }
-    // updatePosition sempre a 60fps (freccia fluida)
-    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f, %f)", lat, lon] completionHandler:^(id r, NSError *e) {
-        if (e) [self appLog:@"❌ updatePosition JS ERR: %@", e.localizedDescription];
-    }];
-    // updateArrowRotation sempre a 60fps (freccia segue subito la rotta)
-    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f)", course, _cameraHeading, [SettingsStore shared].arrowRotation] completionHandler:^(id r, NSError *e) {
-        if (e) [self appLog:@"❌ arrowRot JS ERR: %@", e.localizedDescription];
-    }];
 }
 
 - (void)simTick {
@@ -1134,7 +1156,10 @@
     
     // PARTENZA dalla posizione CORRENTE (accumulata dai tick precedenti)
     double curLat, curLon;
-    if (_lastLocation) {
+    if (_hasSimPos) {
+        curLat = _simLat;
+        curLon = _simLon;
+    } else if (_lastLocation) {
         curLat = _lastLocation.coordinate.latitude;
         curLon = _lastLocation.coordinate.longitude;
     } else {
@@ -1185,8 +1210,11 @@
         if (course < 0) course += 360;
     }
     
-    [self appLog:@"  🧭 course=%.0f → setSimLoc(%.6f, %.6f)", course, curLat, curLon];
-    [self setSimulatedLocation:curLat lon:curLon course:course];
+    [self appLog:@"  🧭 course=%.0f → simTick store (%.6f, %.6f)", course, curLat, curLon];
+    _simLat = curLat;
+    _simLon = curLon;
+    _simCourse = course;
+    _hasSimPos = YES;
     
     if (_simIndex >= (NSInteger)[_simCoords count] - 1) {
         [self appLog:@"✅ Simulazione completata"];
@@ -1548,8 +1576,48 @@
 }
 
 - (void)smoothTick {
-    // Se simulazione attiva, simTick già gestisce posizione
-    if (_isSimulating) return;
+    // Durante simulazione: legge posizione da _simLat/_simLon/_simCourse (scritti da simTick a 60fps)
+    // TUTTO a 5fps (ogni 12 tick) — sync perfetto marker + camera
+    if (_isSimulating) {
+        if (!_hasSimPos) return;
+        // Update counter: solo ogni 12 tick (5fps) — marker e camera sincroni
+        static int _simFrame = 0;
+        _simFrame++;
+        if (_simFrame < 12) return;
+        _simFrame = 0;
+        
+        double lat = _simLat;
+        double lon = _simLon;
+        double course = _simCourse;
+        
+        // Pre-computa target camera (offset attivo — Waze-style, freccia in basso)
+        double headingRad = course * M_PI / 180.0;
+        double latPerMeter = 1.0 / 111320.0;
+        double lonPerMeter = 1.0 / (111320.0 * cos(lat * M_PI / 180.0));
+        double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
+        double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
+        double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
+        double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
+        double camLat = lat + latOffset + latVert;
+        double camLon = lon + lonOffset + lonVert;
+        
+        // Altitudine dinamica
+        double speedKmh = _currentSpeed * 3.6;
+        double factor = 1.0 + MAX(0, (speedKmh - 40.0) / 160.0) * 2.0;
+        factor = MIN(factor, 3.0);
+        double effectiveAltitude = self.cameraAltitude * factor;
+        double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
+        
+        // UNA sola evalJS: Symbol Layer GeoJSON + easeTo 200ms
+        NSString *js = [NSString stringWithFormat:
+            @"smoothNavFrame(%f,%f,%f,%f,%f,%f,%f);",
+            lat, lon, camLat, camLon, course, zoom, self.cameraPitch];
+        [self.webView evaluateJavaScript:js completionHandler:^(id r, NSError *e) {
+            if (e) [self appLog:@"❌ smoothNavFrame ERR: %@", e.localizedDescription];
+        }];
+        return;
+    }
+    
     if (!self.isNavigating) return;
     
     // Interpolazione GPS reale
