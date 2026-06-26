@@ -297,7 +297,7 @@ function _searchAndPost(query, reqId) {
       var seen = {};
       var merged = [];
       for (var i = 0; i < all.length; i++) {
-        var key = Math.round(all[i].lat * 100) + "_" + Math.round(all[i].lon * 100);
+        var key = Math.round(all[i].lat * 1000) + "_" + Math.round(all[i].lon * 1000) + "_" + (all[i].displayName || "").substring(0, 30);
         if (seen[key]) continue;
         seen[key] = true;
         merged.push(all[i]);
