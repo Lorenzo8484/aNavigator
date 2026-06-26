@@ -1576,7 +1576,7 @@
 }
 
 - (void)smoothTick {
-    // Durante simulazione: freccia a 60fps (setData), camera a 5fps (easeTo)
+    // Durante simulazione: freccia + camera a 60fps sincronizzati con jumpTo
     if (_isSimulating) {
         if (!_hasSimPos) return;
         
@@ -1584,19 +1584,7 @@
         double lon = _simLon;
         double course = _simCourse;
         
-        // OGNI TICK (60fps): aggiorna posizione freccia Symbol Layer
-        NSString *arrowJs = [NSString stringWithFormat:
-            @"try{map.getSource('car-position').setData({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[%f,%f]}})}catch(e){}",
-            lon, lat];
-        [self.webView evaluateJavaScript:arrowJs completionHandler:nil];
-        
-        // Camera: solo ogni 12 tick (5fps) con easeTo 200ms
-        static int _simFrame = 0;
-        _simFrame++;
-        if (_simFrame < 12) return;
-        _simFrame = 0;
-        
-        // Pre-computa target camera (offset attivo — Waze-style, freccia in basso)
+        // Pre-computa target camera (offset attivo)
         double headingRad = course * M_PI / 180.0;
         double latPerMeter = 1.0 / 111320.0;
         double lonPerMeter = 1.0 / (111320.0 * cos(lat * M_PI / 180.0));
@@ -1614,13 +1602,13 @@
         double effectiveAltitude = self.cameraAltitude * factor;
         double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
         
-        // Camera easeTo 200ms — center + bearing + zoom + pitch
-        // La freccia (viewport-aligned) segue la rotazione smooth della camera
-        NSString *camJs = [NSString stringWithFormat:
-            @"try{map.easeTo({center:[%f,%f],zoom:%f,bearing:%f,pitch:%f,duration:200})}catch(e){}",
-            camLon, camLat, zoom, course, self.cameraPitch];
-        [self.webView evaluateJavaScript:camJs completionHandler:^(id r, NSError *e) {
-            if (e) [self appLog:@"❌ smoothCam ERR: %@", e.localizedDescription];
+        // UNICO evaluateJavaScript per tick: arrow (Symbol Layer) + camera (jumpTo)
+        // Sync perfetto: posizione freccia + camera sullo STESSO frame
+        NSString *js = [NSString stringWithFormat:
+            @"updatePosition(%f,%f);mapJumpTo(%f,%f,%f,%f,%f);",
+            lat, lon, camLat, camLon, zoom, course, self.cameraPitch];
+        [self.webView evaluateJavaScript:js completionHandler:^(id r, NSError *e) {
+            if (e) [self appLog:@"❌ simTick JS ERR: %@", e.localizedDescription];
         }];
         return;
     }

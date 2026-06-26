@@ -150,6 +150,11 @@ function animateCamera(lat, lng, zoom, bearing, pitch) {
   try { map.easeTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50, duration:200}); } catch(e) {}
 }
 
+// Nuova: salta la posizione camera istantaneamente — sincrono con updatePosition
+function mapJumpTo(lat, lng, zoom, bearing, pitch) {
+  try { map.jumpTo({center:[lng, lat], zoom:zoom || 16, bearing:bearing || 0, pitch:pitch || 50}); } catch(e) {}
+}
+
 function centerOnUser() {
   if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50, bearing:userCourse});
 }
