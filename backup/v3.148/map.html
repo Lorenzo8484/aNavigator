@@ -138,22 +138,7 @@ function initArrowLayer() {
   }
 }
 
-// Chiamata da ObjC — aggiorna posizione GeoJSON + camera
-function smoothNavFrame(lat, lon, camLat, camLon, course, zoom, pitch) {
-  if (!_arrowLayerAdded) { initArrowLayer(); }
-  try {
-    map.getSource('car-position').setData({
-      type: 'Feature',
-      properties: {},
-      geometry: {type: 'Point', coordinates: [lon, lat]}
-    });
-  } catch(e) {}
-  try {
-    map.easeTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50, duration:200});
-  } catch(e) {}
-}
-
-// Chiamato da ObjC per navigazione reale
+// Chiamato da ObjC per navigazione reale (GPS o sim)
 function updatePosition(lat, lng) {
   userLat = lat; userLng = lng; recalcLat = lat; recalcLng = lng;
   if (!_arrowLayerAdded) { initArrowLayer(); }
