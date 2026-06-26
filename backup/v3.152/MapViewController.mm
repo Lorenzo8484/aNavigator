@@ -1607,10 +1607,10 @@
         double effectiveAltitude = self.cameraAltitude * factor;
         double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
         
-        // UNICO evalJS: freccia + camera — 5fps sync, easeTo 150ms
+        // UNICO evalJS: freccia Symbol Layer + camera easeTo 150ms — 5fps sync
         NSString *js = [NSString stringWithFormat:
-            @"updatePosition(%f,%f);animateCamera(%f,%f,%f,%f,%f);updateArrowRotation(%f,0,0);",
-            lat, lon, camLat, camLon, zoom, course, self.cameraPitch, course];
+            @"updatePosition(%f,%f);animateCamera(%f,%f,%f,%f,%f);",
+            lat, lon, camLat, camLon, zoom, course, self.cameraPitch];
         [self.webView evaluateJavaScript:js completionHandler:nil];
         return;
     }

@@ -10,13 +10,10 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
 .maplibregl-ctrl-attrib{display:none!important}
-#carArrow{position:fixed;left:50%;top:35%;transform:translate(-50%,-50%);z-index:10;pointer-events:none;width:36px;height:36px}
-#carArrowInner{width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-bottom:28px solid #4488ff;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6));margin:4px auto 0}
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div id="carArrow"><div id="carArrowInner"></div></div>
 <script>
 // ===================================================================
 // LOG HELPER — invia log al pannello log integrato (ObjC)
@@ -85,68 +82,72 @@ if (map) {
 // FUNZIONI CHIAMATE DA OBJC (via evaluateJavaScript)
 // ===================================================================
 
-// ---- FREECIA CSS position:fixed — sempre al centro, non si muove MAI ----
-// Solo la mappa si muove sotto. Rotation via CSS transform.
-var _arrowVisible = false;
+// ---- POSITION + ROTATION (MapLibre Symbol Layer — renderizzato da MapLibre nel SUO ciclo 60fps) ----
+// Niente DOM, niente CSS, niente Marker fixed. L'icona è renderizzata NELLO stesso passaggio delle tiles.
+var _arrowLayerAdded = false;
 
-function showArrow() {
-  document.getElementById('carArrow').style.display = 'block';
-  _arrowVisible = true;
+function initArrowLayer() {
+  if (_arrowLayerAdded || !map || !map.isStyleLoaded()) return;
+  try {
+    var c = document.createElement('canvas');
+    c.width = 36; c.height = 36;
+    var ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 36, 36);
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.moveTo(18, 2); ctx.lineTo(30, 30); ctx.lineTo(18, 24); ctx.lineTo(6, 30);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(18, 15, 5, 0, 2*Math.PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+    var imageData = ctx.getImageData(0, 0, 36, 36);
+    map.addImage('car-arrow', imageData);
+    map.addSource('car-position', {
+      type: 'geojson',
+      data: {type: 'Feature', properties: {}, geometry: {type: 'Point', coordinates: [11.34, 44.49]}}
+    });
+    map.addLayer({
+      id: 'car-layer', type: 'symbol', source: 'car-position',
+      layout: {'icon-image': 'car-arrow', 'icon-rotation-alignment': 'viewport', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': 1.2}
+    });
+    _arrowLayerAdded = true;
+    appLog("✅ Arrow Symbol Layer inizializzato");
+  } catch(e) {
+    appLog("❌ initArrowLayer ERR: " + (e.message || e));
+  }
 }
-function hideArrow() {
-  document.getElementById('carArrow').style.display = 'none';
-  _arrowVisible = false;
-}
-hideArrow(); // nascosta di default
 
-// Chiamato da ObjC a 5fps — posizione tramite Symbol Layer che non tocca DOM
-// La camera usa easeTo({duration:150}) — animazione fluida
+// Aggiorna posizione freccia Symbol Layer E camera easeTo 150ms — 5fps (sync perfetto, niente accumulo)
 function updatePosition(lat, lng) {
   userLat = lat; userLng = lng; recalcLat = lat; recalcLng = lng;
   hasGps = true;
+  if (!_arrowLayerAdded) { initArrowLayer(); }
+  try { map.getSource('car-position').setData({type:'Feature',properties:{},geometry:{type:'Point',coordinates:[lng,lat]}}); } catch(e) {}
 }
 
-// Camera a 5fps con easeTo — la mappa scorre fluida sotto la freccia fissa
+// Camera easeTo 150ms — più breve dell'intervallo 192ms (5fps), niente accumulo
+// Bearing dead zone 3° per evitare micro-rotazioni
+var _lastCamBearing = -1;
 function animateCamera(lat, lng, zoom, bearing, pitch) {
-  try {
-    map.easeTo({center:[lng, lat], zoom:zoom || 16, bearing:bearing || 0, pitch:pitch || 50, duration:150});
-  } catch(e) {}
-}
-
-// Rotazione freccia CSS
-function updateArrowRotation(heading, cameraHeading, offset) {
-  var angle = heading;
-  if (cameraHeading) angle = angle - cameraHeading;
-  angle += offset || 0;
-  try {
-    document.getElementById('carArrow').style.transform = 'translate(-50%,-50%) rotate(' + angle + 'deg)';
-  } catch(e) {}
+  if (_lastCamBearing >= 0 && Math.abs(bearing - _lastCamBearing) < 3.0) {
+    bearing = _lastCamBearing;
+  }
+  _lastCamBearing = bearing;
+  try { map.easeTo({center:[lng, lat], zoom:zoom || 16, bearing:bearing || 0, pitch:pitch || 50, duration:150}); } catch(e) {}
 }
 
 function centerOnUser() {
   if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50, bearing:userCourse});
 }
 
+function updateArrowRotation(heading, cameraHeading, offset) {
+  // Non serve — Symbol Layer icon-rotation-alignment=viewport, camera bearing gestisce rotazione
+}
+
 function updateCompass(heading) {
 }
 
 // ---- CAMERA ----
-function setMapCenter(lat, lng, zoom) {
-  map.flyTo({center:[lng, lat], zoom:zoom || 15, pitch:50, duration:300});
-}
-
-function setMapBearing(heading) {
-  map.easeTo({bearing:heading, duration:300});
-}
-
-function setMapTilt(pitch) {
-  map.easeTo({pitch:pitch, duration:300});
-}
-
-function animateCamera(lat, lng, zoom, bearing, pitch) {
-  appLog("animateCamera: center=" + lat.toFixed(4)+","+lng.toFixed(4)+" zoom="+zoom.toFixed(1)+" bearing="+(bearing||0).toFixed(0));
-  map.jumpTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50});
-}
 
 function setMapType(type) {
   // type: 0=default, 1=dark, 2=satellite
@@ -715,7 +716,7 @@ function bearing(lat1, lng1, lat2, lng2) {
 if (map) {
   map.on("load", function() {
     // Inizializza Symbol Layer freccia SUBITO (MapLibre deve avere lo style loaded)
-    showArrow();
+    initArrowLayer();
     map.flyTo({center:[11.34, 44.49], zoom:14, pitch:50});
     appLog("✓ Mappa pronta (OpenFreeMap liberty, zoom 14)");
     // Ottieni città utente subito (così è pronta per la ricerca)
