@@ -826,6 +826,8 @@
 #pragma mark - Camera
 
 - (void)applyCameraSettings {
+    // Durante simulazione: smoothTick gestisce camera a 60fps. Non usare _lastLocation STALE.
+    if (_isSimulating) return;
     CLLocationCoordinate2D centerCoord = _lastLocation ? _lastLocation.coordinate : CLLocationCoordinate2DMake(44.49, 11.34);
     [self appLog:@"   applyCameraSettings: _lastLocation=%.6f,%.6f (nav=%d)", centerCoord.latitude, centerCoord.longitude, self.isNavigating];
     [self applyCameraSettingsWithCoord:centerCoord];

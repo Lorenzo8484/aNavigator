@@ -7,18 +7,13 @@
 <script src="lib/maplibre-gl.js"></script>
 <link href="lib/maplibre-gl.css" rel="stylesheet"/>
 <style>
-|*{margin:0;padding:0;box-sizing:border-box}
+*{margin:0;padding:0;box-sizing:border-box}
 html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
 .maplibregl-ctrl-attrib{display:none!important}
-#diagnostic-crosshair{position:fixed;left:50%;top:35%;width:40px;height:40px;transform:translate(-50%,-50%);z-index:99999;pointer-events:none;opacity:0.8}
-#diagnostic-crosshair::before,#diagnostic-crosshair::after{content:'';position:absolute;background:red}
-#diagnostic-crosshair::before{width:2px;height:40px;left:19px;top:0}
-#diagnostic-crosshair::after{width:40px;height:2px;left:0;top:19px}
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div id="diagnostic-crosshair"></div>
 <script>
 // ===================================================================
 // LOG HELPER — invia log al pannello log integrato (ObjC)
