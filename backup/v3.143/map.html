@@ -51,22 +51,13 @@ var _arrowOffset = 0;
 var _lastArrowAngle = -999;
 
 function smoothNavFrame(lat, lon, camLat, camLon, course, zoom, pitch) {
-  // Camera: easeTo 200ms — fluido come video
-  try { map.easeTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50, duration:200}); } catch(e) {}
-  
-  // Freccia: CSS fixed center, rotazione con map.getBearing() — OGNI frame
-  // map.getBearing() = bearing REALE durante l'animazione easeTo (non target)
-  var realBearing = map.getBearing();
-  var angle = course - realBearing + _arrowOffset;
-  while (angle > 180) angle -= 360;
-  while (angle < -180) angle += 360;
-  
-  var diff = Math.abs(angle - _lastArrowAngle);
-  if (diff > 180) diff = 360 - diff;
-  if (diff > 2.0) {
-    document.getElementById('arrow-shape').style.transform = 'rotate(' + angle + 'deg)';
-    _lastArrowAngle = angle;
-  }
+  // UNA sola easeTo: center + bearing + zoom + pitch = MapLibre gestisce TUTTO
+  // La rotazione della mappa fa sembrare la strada sempre SU
+  // La freccia CSS fixed punta SU = sempre in direzione di marcia
+  // ZERO DOM writes, ZERO setData, ZERO rotate() — niente vibra
+  try {
+    map.easeTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50, duration:200});
+  } catch(e) {}
 }
 
 // ===================================================================
