@@ -151,6 +151,18 @@ function startNavEngine() {
   initNavEngine();
   _navEngineRunning = true;
   appLog("▶️ Nav Engine rAF start");
+  
+  // Se abbiamo almeno una posizione, usala SUBITO (senza aspettare interpolazione)
+  if (_navEnginePending.length >= 1) {
+    var p = _navEnginePending[_navEnginePending.length - 1];
+    _navEngineSource.setData({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: { bearing: p.bearing }
+    });
+    map.jumpTo({ center: [p.lng, p.lat], bearing: p.bearing });
+  }
+  
   function tick(now) {
     if (!_navEngineRunning) return;
     
