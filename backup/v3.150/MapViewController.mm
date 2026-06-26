@@ -1576,7 +1576,7 @@
 }
 
 - (void)smoothTick {
-    // Durante simulazione: freccia + camera a 60fps sincronizzati con jumpTo
+    // Durante simulazione: freccia 60fps, camera 5fps easeTo
     if (_isSimulating) {
         if (!_hasSimPos) return;
         
@@ -1584,32 +1584,37 @@
         double lon = _simLon;
         double course = _simCourse;
         
-        // Pre-computa target camera (offset attivo)
-        double headingRad = course * M_PI / 180.0;
-        double latPerMeter = 1.0 / 111320.0;
-        double lonPerMeter = 1.0 / (111320.0 * cos(lat * M_PI / 180.0));
-        double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
-        double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
-        double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
-        double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
-        double camLat = lat + latOffset + latVert;
-        double camLon = lon + lonOffset + lonVert;
+        // Aggiorna posizione freccia OGNI tick (60fps) — Symbol Layer, non muove camera
+        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f,%f)", lat, lon] completionHandler:nil];
         
-        // Altitudine dinamica
-        double speedKmh = _currentSpeed * 3.6;
-        double factor = 1.0 + MAX(0, (speedKmh - 40.0) / 160.0) * 2.0;
-        factor = MIN(factor, 3.0);
-        double effectiveAltitude = self.cameraAltitude * factor;
-        double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
-        
-        // UNICO evaluateJavaScript per tick: arrow (Symbol Layer) + camera (jumpTo)
-        // Sync perfetto: posizione freccia + camera sullo STESSO frame
-        NSString *js = [NSString stringWithFormat:
-            @"updatePosition(%f,%f);mapJumpTo(%f,%f,%f,%f,%f);",
-            lat, lon, camLat, camLon, zoom, course, self.cameraPitch];
-        [self.webView evaluateJavaScript:js completionHandler:^(id r, NSError *e) {
-            if (e) [self appLog:@"❌ simTick JS ERR: %@", e.localizedDescription];
-        }];
+        // Camera SOLO ogni 12 tick (5fps) — easeTo 200ms fluido
+        static int _camFrame = 0;
+        _camFrame++;
+        if (_camFrame >= 12) {
+            _camFrame = 0;
+            
+            // Pre-computa target camera (offset attivo — Waze-style, freccia in basso)
+            double headingRad = course * M_PI / 180.0;
+            double latPerMeter = 1.0 / 111320.0;
+            double lonPerMeter = 1.0 / (111320.0 * cos(lat * M_PI / 180.0));
+            double latOffset = self.cameraOffset * cos(headingRad + M_PI_2) * latPerMeter;
+            double lonOffset = self.cameraOffset * sin(headingRad + M_PI_2) * lonPerMeter;
+            double latVert = self.cameraVerticalOffset * cos(headingRad) * latPerMeter;
+            double lonVert = self.cameraVerticalOffset * sin(headingRad) * lonPerMeter;
+            double camLat = lat + latOffset + latVert;
+            double camLon = lon + lonOffset + lonVert;
+            
+            // Altitudine dinamica
+            double speedKmh = _currentSpeed * 3.6;
+            double factor = 1.0 + MAX(0, (speedKmh - 40.0) / 160.0) * 2.0;
+            factor = MIN(factor, 3.0);
+            double effectiveAltitude = self.cameraAltitude * factor;
+            double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
+            
+            NSString *js = [NSString stringWithFormat:@"animateCamera(%f,%f,%f,%f,%f);",
+                camLat, camLon, zoom, course, self.cameraPitch];
+            [self.webView evaluateJavaScript:js completionHandler:nil];
+        }
         return;
     }
     

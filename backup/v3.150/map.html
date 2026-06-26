@@ -138,7 +138,8 @@ function initArrowLayer() {
   }
 }
 
-// Chiamato da ObjC per navigazione reale (GPS o sim)
+// Chiamato da ObjC per navigazione reale (GPS o sim) — 60fps
+// NON tocca la camera — solo freccia Symbol Layer
 function updatePosition(lat, lng) {
   userLat = lat; userLng = lng; recalcLat = lat; recalcLng = lng;
   if (!_arrowLayerAdded) { initArrowLayer(); }
@@ -146,13 +147,15 @@ function updatePosition(lat, lng) {
   hasGps = true;
 }
 
+// Camera a 5fps con easeTo — animazione fluida, freccia la segue
+var _lastCamBearing = -1;
 function animateCamera(lat, lng, zoom, bearing, pitch) {
-  try { map.easeTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50, duration:200}); } catch(e) {}
-}
-
-// Nuova: salta la posizione camera istantaneamente — sincrono con updatePosition
-function mapJumpTo(lat, lng, zoom, bearing, pitch) {
-  try { map.jumpTo({center:[lng, lat], zoom:zoom || 16, bearing:bearing || 0, pitch:pitch || 50}); } catch(e) {}
+  // Dead zone: non ruotare per micro-variazioni < 3 gradi
+  if (_lastCamBearing >= 0 && bearing >= 0 && Math.abs(bearing - _lastCamBearing) < 3.0) {
+    bearing = _lastCamBearing;
+  }
+  _lastCamBearing = bearing;
+  try { map.easeTo({center:[lng, lat], zoom:zoom || 16, bearing:bearing || 0, pitch:pitch || 50, duration:200}); } catch(e) {}
 }
 
 function centerOnUser() {
