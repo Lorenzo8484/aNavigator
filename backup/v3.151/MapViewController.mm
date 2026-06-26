@@ -1576,9 +1576,14 @@
 }
 
 - (void)smoothTick {
-    // SIMULAZIONE: freccia + camera a 60fps sincrono in UNICO evaluateJavaScript
+    // SIMULAZIONE: freccia CSS fixed + camera easeTo 5fps sync
     if (_isSimulating) {
         if (!_hasSimPos) return;
+        // Rate limit: ogni 12 tick = 5fps (sync perfetto con easeTo 150ms)
+        static int _simFrame = 0;
+        _simFrame++;
+        if (_simFrame < 12) return;
+        _simFrame = 0;
         
         double lat = _simLat;
         double lon = _simLon;
@@ -1602,20 +1607,20 @@
         double effectiveAltitude = self.cameraAltitude * factor;
         double zoom = MAX(10.0, MIN(21.5, 18.0 - log2(MAX(effectiveAltitude, 10.0) / 100.0)));
         
-        // UNICO evalJS: freccia Symbol Layer + camera jumpTo — sincrono, 60fps
+        // UNICO evalJS: freccia + camera — 5fps sync, easeTo 150ms
         NSString *js = [NSString stringWithFormat:
-            @"updatePosition(%f,%f);animateCamera(%f,%f,%f,%f,%f);",
-            lat, lon, camLat, camLon, zoom, course, self.cameraPitch];
+            @"updatePosition(%f,%f);animateCamera(%f,%f,%f,%f,%f);updateArrowRotation(%f,0,0);",
+            lat, lon, camLat, camLon, zoom, course, self.cameraPitch, course];
         [self.webView evaluateJavaScript:js completionHandler:nil];
         return;
     }
     
     if (!self.isNavigating) return;
     
-    // Interpolazione GPS reale
+    // Interpolazione GPS reale — solo updatePosition, nessun tocco camera
     if (_isInterpolating) {
         NSTimeInterval elapsed = [[NSDate date] timeIntervalSince1970] - _interpStartTime;
-        double t = MIN(elapsed / 0.5, 1.0); // interpola in 0.5 secondi
+        double t = MIN(elapsed / 0.16, 1.0); // interpola in 0.16 secondi (60fps)
         t = t * t * (3.0 - 2.0 * t); // smoothstep
         
         double lat = _interpFrom.latitude + (_interpTo.latitude - _interpFrom.latitude) * t;
