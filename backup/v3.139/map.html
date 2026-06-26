@@ -162,7 +162,7 @@ function smoothNavFrame(lat, lon, camLat, camLon, course, zoom, pitch) {
   // Camera jumpTo istantaneo — a 60fps è fluido come video
   // jumpTo evita accumulation di easeTo a 60fps
   try {
-    map.jumpTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50});
+    map.easeTo({center:[camLon, camLat], zoom:zoom || 16, bearing:course, pitch:pitch || 50, duration:200});
   } catch(e) {}
 }
 
