@@ -66,6 +66,7 @@
     [self setupSearchOverlay];
     [self setupButtons];
     [self applyMenuOpacity];
+    [self loadSavedLayout];
     // Tap sulla mappa chiude ricerca/tastiera
     UITapGestureRecognizer *mapTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSearch)];
     mapTap.cancelsTouchesInView = NO;
@@ -2049,6 +2050,155 @@
 
 - (BOOL)searchActive {
     return self.searchActive_Ivar;
+}
+
+#pragma mark - Layout Edit Mode
+
+- (void)enterLayoutEditMode {
+    _layoutEditMode = YES;
+    
+    // Overlay semi-trasparente con istruzioni + tasti
+    if (!self.layoutEditOverlay) {
+        CGFloat w = self.view.bounds.size.width;
+        UIView *overlay = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 160)];
+        overlay.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
+        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        overlay.userInteractionEnabled = YES;
+        [self.view addSubview:overlay];
+        
+        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 20, w - 32, 30)];
+        title.text = @"Modalità edit schermo";
+        title.font = [UIFont boldSystemFontOfSize:22];
+        title.textColor = [UIColor whiteColor];
+        title.textAlignment = NSTextAlignmentCenter;
+        title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [overlay addSubview:title];
+        
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(16, 55, w - 32, 20)];
+        sub.text = @"Sposta i pulsanti dove vuoi";
+        sub.font = [UIFont systemFontOfSize:14];
+        sub.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.6];
+        sub.textAlignment = NSTextAlignmentCenter;
+        sub.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [overlay addSubview:sub];
+        
+        // X cancel
+        UIButton *xBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        xBtn.frame = CGRectMake(12, 24, 44, 44);
+        xBtn.tintColor = [UIColor whiteColor];
+        [xBtn setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
+        [xBtn addTarget:self action:@selector(layoutCancelTapped) forControlEvents:UIControlEventTouchUpInside];
+        [overlay addSubview:xBtn];
+        
+        // ✓ save
+        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        saveBtn.frame = CGRectMake(w - 56, 24, 44, 44);
+        saveBtn.tintColor = [UIColor systemGreenColor];
+        [saveBtn setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
+        [saveBtn addTarget:self action:@selector(layoutSaveTapped) forControlEvents:UIControlEventTouchUpInside];
+        [overlay addSubview:saveBtn];
+        
+        self.layoutEditOverlay = overlay;
+    }
+    self.layoutEditOverlay.hidden = NO;
+    [self.view bringSubviewToFront:self.layoutEditOverlay];
+    
+    // Raccogli tutti gli elementi draggabili (escluso busVC, navBar)
+    NSMutableArray *items = [NSMutableArray array];
+    void(^addItem)(UIView*, NSString*, CGRect) = ^(UIView *v, NSString *id, CGRect df) {
+        if (!v) return;
+        [items addObject:@{@"view": v, @"id": id, @"default": [NSValue valueWithCGRect:df]}];
+    };
+    
+    addItem(self.modalitaButton, @"modalita", CGRectMake(self.view.bounds.size.width - 112, 54, 100, 40));
+    addItem(self.mapButton, @"map", CGRectMake(self.view.bounds.size.width - 48, 54, 40, 40));
+    addItem(self.searchButton, @"search", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height * 0.35 + 10, 100, 40));
+    addItem(self.trackingButton, @"tracking", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height - 120, 100, 40));
+    addItem(self.settingsButton, @"settings", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height - 60, 100, 40));
+    addItem(self.compassButton, @"compass", CGRectMake(12, self.view.bounds.size.height - 110, 52, 52));
+    addItem(self.logButton, @"log", CGRectMake(12, self.view.bounds.size.height - 170, 44, 44));
+    self.layoutItems = items;
+    
+    // Aggiungi pan gesture a ogni elemento
+    for (NSDictionary *item in items) {
+        UIView *v = item[@"view"];
+        v.autoresizingMask = UIViewAutoresizingNone;
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(layoutPan:)];
+        [v addGestureRecognizer:pan];
+        v.userInteractionEnabled = YES;
+    }
+}
+
+- (void)exitLayoutEditMode:(BOOL)save {
+    _layoutEditMode = NO;
+    self.layoutEditOverlay.hidden = YES;
+    
+    if (save) [self saveLayoutPositions];
+    else [self loadSavedLayout];
+    
+    // Rimuovi pan gesture
+    for (NSDictionary *item in self.layoutItems) {
+        UIView *v = item[@"view"];
+        NSMutableArray *toRemove = [NSMutableArray array];
+        for (UIGestureRecognizer *g in v.gestureRecognizers) {
+            if ([g isKindOfClass:[UIPanGestureRecognizer class]])
+                [toRemove addObject:g];
+        }
+        for (UIGestureRecognizer *g in toRemove)
+            [v removeGestureRecognizer:g];
+    }
+    self.layoutItems = nil;
+}
+
+- (void)layoutPan:(UIPanGestureRecognizer *)pan {
+    UIView *v = pan.view;
+    CGPoint t = [pan translationInView:v.superview];
+    v.center = CGPointMake(v.center.x + t.x, v.center.y + t.y);
+    [pan setTranslation:CGPointZero inView:v.superview];
+}
+
+- (void)layoutSaveTapped {
+    [self exitLayoutEditMode:YES];
+}
+
+- (void)layoutCancelTapped {
+    [self exitLayoutEditMode:NO];
+}
+
+- (void)saveLayoutPositions {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    for (NSDictionary *item in self.layoutItems) {
+        UIView *v = item[@"view"];
+        NSString *key = item[@"id"];
+        [ud setFloat:v.frame.origin.x forKey:[NSString stringWithFormat:@"layout_%@_x", key]];
+        [ud setFloat:v.frame.origin.y forKey:[NSString stringWithFormat:@"layout_%@_y", key]];
+        [ud setFloat:v.frame.size.width forKey:[NSString stringWithFormat:@"layout_%@_w", key]];
+        [ud setFloat:v.frame.size.height forKey:[NSString stringWithFormat:@"layout_%@_h", key]];
+    }
+    [ud synchronize];
+}
+
+- (void)loadSavedLayout {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    void(^apply)(UIView*, NSString*, CGRect) = ^(UIView *v, NSString *key, CGRect defFrame) {
+        if (!v) return;
+        float x = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_x", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_x", key]] : defFrame.origin.x;
+        float y = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_y", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_y", key]] : defFrame.origin.y;
+        float w = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_w", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_w", key]] : defFrame.size.width;
+        float h = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_h", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_h", key]] : defFrame.size.height;
+        v.frame = CGRectMake(x, y, w, h);
+        v.autoresizingMask = UIViewAutoresizingNone;
+    };
+    
+    CGFloat w = self.view.bounds.size.width;
+    CGFloat h = self.view.bounds.size.height;
+    apply(self.modalitaButton, @"modalita", CGRectMake(w - 112, 54, 100, 40));
+    apply(self.mapButton, @"map", CGRectMake(w - 48, 54, 40, 40));
+    apply(self.searchButton, @"search", CGRectMake(w - 112, h * 0.35 + 10, 100, 40));
+    apply(self.trackingButton, @"tracking", CGRectMake(w - 112, h - 120, 100, 40));
+    apply(self.settingsButton, @"settings", CGRectMake(w - 112, h - 60, 100, 40));
+    apply(self.compassButton, @"compass", CGRectMake(12, h - 110, 52, 52));
+    apply(self.logButton, @"log", CGRectMake(12, h - 170, 44, 44));
 }
 
 #pragma mark - Missing Methods

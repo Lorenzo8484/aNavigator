@@ -852,26 +852,64 @@ static NSArray<SettingsRow*>* sectionRows(SettingsSection s) {
         [tsv.trailingAnchor constraintEqualToAnchor:tsw.leadingAnchor constant:-8],
     ]];
     
-    // ── ☀️ Luminosità mappa ──
-    float mapBri = [SettingsStore shared].mapBrightness;
-    UILabel *mbh = [[UILabel alloc] init]; mbh.text = LOC(@"☀️ Luminosità mappa");
-    mbh.font = [UIFont boldSystemFontOfSize:14];
-    mbh.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65]; mbh.translatesAutoresizingMaskIntoConstraints=NO;
-    [self.slidersView addSubview:mbh];
+    // ── 🖥️ Modalità edit schermo ──
+    UILabel *esh = [[UILabel alloc] init]; esh.text = LOC(@"🖥️ Modalità edit schermo");
+    esh.font = [UIFont boldSystemFontOfSize:14];
+    esh.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65]; esh.translatesAutoresizingMaskIntoConstraints=NO;
+    [self.slidersView addSubview:esh];
     [NSLayoutConstraint activateConstraints:@[
-        [mbh.topAnchor constraintEqualToAnchor:self.slidersView.topAnchor constant:900],
-        [mbh.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
+        [esh.topAnchor constraintEqualToAnchor:self.slidersView.topAnchor constant:900],
+        [esh.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
     ]];
     
-    [self mkSX:13 top:916 t:LOC(@"Oscurità") mn:0.0 mx:1.0 val:mapBri fn:^(UISlider*sl){
-        [SettingsStore shared].mapBrightness = sl.value;
-        [[SettingsStore shared] save];
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"MapSettingsChanged" object:nil];
-    } minL:LOC(@"Luminoso") midL:@"" maxL:LOC(@"Scuro") s:&a13 l:&v13 save:@"mapBri" cam:NO];
+    UILabel *esd = [[UILabel alloc] init];
+    esd.text = LOC(@"Sposta pulsanti e finestre dove vuoi");
+    esd.font = [UIFont systemFontOfSize:11];
+    esd.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
+    esd.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.slidersView addSubview:esd];
+    [NSLayoutConstraint activateConstraints:@[
+        [esd.topAnchor constraintEqualToAnchor:esh.bottomAnchor constant:4],
+        [esd.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
+    ]];
     
+    UISwitch *esw = [[UISwitch alloc] init];
+    esw.onTintColor = [UIColor systemBlueColor];
+    esw.translatesAutoresizingMaskIntoConstraints = NO;
+    esw.on = self.mapVC.layoutEditMode;
+    [esw addTarget:self action:@selector(editLayoutSwitchChanged:) forControlEvents:UIControlEventValueChanged];
+    [self.slidersView addSubview:esw];
+    [NSLayoutConstraint activateConstraints:@[
+        [esw.topAnchor constraintEqualToAnchor:esh.bottomAnchor constant:2],
+        [esw.trailingAnchor constraintEqualToAnchor:self.slidersView.trailingAnchor constant:-12],
+    ]];
+    
+    UILabel *esv = [[UILabel alloc] init];
+    esv.text = self.mapVC.layoutEditMode ? LOC(@"Attivo") : LOC(@"Disattivo");
+    esv.font = [UIFont systemFontOfSize:12];
+    esv.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
+    esv.translatesAutoresizingMaskIntoConstraints = NO;
+    esv.tag = 5555;
+    [self.slidersView addSubview:esv];
+    [NSLayoutConstraint activateConstraints:@[
+        [esv.centerYAnchor constraintEqualToAnchor:esw.centerYAnchor],
+        [esv.trailingAnchor constraintEqualToAnchor:esw.leadingAnchor constant:-8],
+    ]];
 }
 
 // Helper: Trasparenza = alpha del background (0.15=molto vetro, 0.7=quasi opaco)
+- (void)editLayoutSwitchChanged:(UISwitch *)sw {
+    if (sw.on) {
+        [self.mapVC enterLayoutEditMode];
+    } else {
+        // Se lo switch viene spento da qui, usciamo salvando
+        [self.mapVC exitLayoutEditMode:YES];
+    }
+    // Aggiorna label "Attivo/Disattivo"
+    UILabel *esv = [self.slidersView viewWithTag:5555];
+    esv.text = sw.on ? LOC(@"Attivo") : LOC(@"Disattivo");
+}
+
 - (void)applyBlurStyle:(float)v {
     self.mainBlur.backgroundColor=[[UIColor blackColor] colorWithAlphaComponent:0.15 + v*0.55];
 }
