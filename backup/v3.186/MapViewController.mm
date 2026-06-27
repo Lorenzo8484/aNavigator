@@ -869,9 +869,6 @@
             self.trackingButton.hidden = NO;
             self.compassButton.hidden = YES;
             self.logButton.hidden = NO;
-            self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 20, 100, 40);
-            self.trackingButton.frame = CGRectMake(w - 112, h - 120, 100, 40);
-            self.settingsButton.frame = CGRectMake(w - 112, h - 60, 100, 40);
         }
     } else {
         // Bus hidden
@@ -882,14 +879,8 @@
         self.trackingButton.hidden = NO;
         self.compassButton.hidden = YES;
         self.logButton.hidden = NO;
-        self.modalitaButton.frame = CGRectMake(w - 112, 54, 100, 40);
-        self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 10, 100, 40);
-        self.trackingButton.frame = CGRectMake(w - 112, h - 120, 100, 40);
-        self.settingsButton.frame = CGRectMake(w - 112, h - 60, 100, 40);
     }
 }
-
-#pragma mark - Camera
 
 #pragma mark - Camera Slider (real-time push to JS)
 
