@@ -313,8 +313,7 @@
     [self.compassButton setImage:compassImg forState:UIControlStateNormal];
     self.compassButton.imageView.contentMode = UIViewContentModeScaleAspectFit;
     [self.compassButton addTarget:self action:@selector(compassButtonTapped) forControlEvents:UIControlEventTouchUpInside];
-    // 🧭 Bussola nascosta (usa nativa MapLibre JS)
-    self.compassButton.hidden = YES;
+    self.compassButton.hidden = ![SettingsStore shared].showCompass; // use custom compass (no system compass in Leaflet)
     [self.view addSubview:self.compassButton];
     [self.view bringSubviewToFront:self.compassButton];
     
@@ -867,7 +866,7 @@
             self.searchButton.hidden = NO;
             self.settingsButton.hidden = NO;
             self.trackingButton.hidden = NO;
-            self.compassButton.hidden = YES; // sempre nascosta (usa MapLibre nativa)
+            self.compassButton.hidden = NO;
             self.logButton.hidden = NO;
             self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 20, 100, 40);
             self.trackingButton.frame = CGRectMake(w - 112, h - 120, 100, 40);
@@ -880,7 +879,7 @@
         self.searchButton.hidden = NO;
         self.settingsButton.hidden = NO;
         self.trackingButton.hidden = NO;
-        self.compassButton.hidden = YES; // sempre nascosta (usa MapLibre nativa)
+        self.compassButton.hidden = NO;
         self.logButton.hidden = NO;
         self.modalitaButton.frame = CGRectMake(w - 112, 54, 100, 40);
         self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 10, 100, 40);
@@ -1836,8 +1835,8 @@
     BOOL dark = st.nightMode || st.darkTheme;
     self.view.backgroundColor = dark ? [UIColor blackColor] : [UIColor colorWithWhite:0.15 alpha:1.0];
     
-    // Bussola (sempre nascosta, usa MapLibre nativa)
-    self.compassButton.hidden = YES;
+    // Bussola
+    self.compassButton.hidden = ![SettingsStore shared].showCompass;
     [self applyMenuOpacity];
     
     // Mostra edifici 3D (MapLibre — nascondi/mostra layer building)

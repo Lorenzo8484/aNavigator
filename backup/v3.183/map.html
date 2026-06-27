@@ -71,7 +71,7 @@ try {
     attributionControl: false
   });
   // Bussola nativa MapLibre GL (bottom-left, senza zoom)
-  map.addControl(new maplibregl.NavigationControl({showCompass: true, showZoom: false}), 'bottom-left');
+  map.addControl(new maplibregl.NavigationControl({showCompass:true, showZoom:false}), 'bottom-left');
 } catch(e) {
   appLog("❌ MapLibre init error: " + (e.message || e));
 }
