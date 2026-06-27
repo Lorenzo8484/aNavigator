@@ -330,9 +330,9 @@
     [self.logButton addTarget:self action:@selector(toggleLogPanel) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.logButton];
     
-    // 🛣️ Pill via (alta 120pt: info grandi + nome strada)
+    // 🛣️ Pill via (alta 340pt: tutto dentro con spazio)
     self.roadNameLabel = [[UIView alloc] init];
-    self.roadNameLabel.frame = CGRectMake(12, h - 220, w - 24, 140);
+    self.roadNameLabel.frame = CGRectMake(12, h - 420, w - 24, 340);
     self.roadNameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
     self.roadNameLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
     self.roadNameLabel.layer.cornerRadius = 22;
@@ -345,34 +345,34 @@
     // Riga superiore: ETA (sinistra) | Durata (centro) | Distanza (destra) — doppia dimensione
     CGFloat roadPW = w - 24;
     self.roadETALabel = [[UILabel alloc] init];
-    self.roadETALabel.frame = CGRectMake(16, 8, (roadPW - 32) / 3, 36);
-    self.roadETALabel.font = [UIFont boldSystemFontOfSize:20];
+    self.roadETALabel.frame = CGRectMake(16, 14, (roadPW - 32) / 3, 50);
+    self.roadETALabel.font = [UIFont boldSystemFontOfSize:28];
     self.roadETALabel.textColor = [UIColor whiteColor];
     self.roadETALabel.textAlignment = NSTextAlignmentLeft;
     self.roadETALabel.text = @"";
     [self.roadNameLabel addSubview:self.roadETALabel];
     
     self.roadTimeLabel = [[UILabel alloc] init];
-    self.roadTimeLabel.frame = CGRectMake(16 + (roadPW - 32) / 3, 8, (roadPW - 32) / 3, 36);
-    self.roadTimeLabel.font = [UIFont boldSystemFontOfSize:20];
+    self.roadTimeLabel.frame = CGRectMake(16 + (roadPW - 32) / 3, 14, (roadPW - 32) / 3, 50);
+    self.roadTimeLabel.font = [UIFont boldSystemFontOfSize:28];
     self.roadTimeLabel.textColor = [UIColor whiteColor];
     self.roadTimeLabel.textAlignment = NSTextAlignmentCenter;
     self.roadTimeLabel.text = @"";
     [self.roadNameLabel addSubview:self.roadTimeLabel];
     
     self.roadDistLabel = [[UILabel alloc] init];
-    self.roadDistLabel.frame = CGRectMake(16 + 2 * (roadPW - 32) / 3, 8, (roadPW - 32) / 3, 36);
-    self.roadDistLabel.font = [UIFont boldSystemFontOfSize:20];
+    self.roadDistLabel.frame = CGRectMake(16 + 2 * (roadPW - 32) / 3, 14, (roadPW - 32) / 3, 50);
+    self.roadDistLabel.font = [UIFont boldSystemFontOfSize:28];
     self.roadDistLabel.textColor = [UIColor whiteColor];
     self.roadDistLabel.textAlignment = NSTextAlignmentRight;
     self.roadDistLabel.text = @"";
     [self.roadNameLabel addSubview:self.roadDistLabel];
     
-    // Riga inferiore: nome via (bianco, centrato, multi-linea)
+    // Riga inferiore: nome via (bianco, centrato, multi-linea, enorme)
     self.roadStreetLabel = [[UILabel alloc] init];
-    self.roadStreetLabel.frame = CGRectMake(12, 52, roadPW - 24, 78);
-    self.roadStreetLabel.numberOfLines = 2;
-    self.roadStreetLabel.font = [UIFont boldSystemFontOfSize:22];
+    self.roadStreetLabel.frame = CGRectMake(12, 80, roadPW - 24, 240);
+    self.roadStreetLabel.numberOfLines = 3;
+    self.roadStreetLabel.font = [UIFont boldSystemFontOfSize:30];
     self.roadStreetLabel.textColor = [UIColor whiteColor];
     self.roadStreetLabel.textAlignment = NSTextAlignmentCenter;
     self.roadStreetLabel.text = @"";
@@ -2238,7 +2238,7 @@
     addItem(self.settingsButton, @"settings", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height - 60, 100, 40));
     addItem(self.compassButton, @"compass", CGRectMake(12, self.view.bounds.size.height - 110, 52, 52));
     addItem(self.logButton, @"log", CGRectMake(12, self.view.bounds.size.height - 170, 44, 44));
-    addItem((UIView *)self.roadNameLabel, @"streetname", CGRectMake(12, self.view.bounds.size.height - 220, self.view.bounds.size.width - 24, 140));
+    addItem((UIView *)self.roadNameLabel, @"streetname", CGRectMake(12, self.view.bounds.size.height - 420, self.view.bounds.size.width - 24, 340));
     addItem(self.stopNavButton, @"stopnav", CGRectMake(12, self.view.bounds.size.height - 260, 52, 52));
     // Mostra temporaneamente la pillola nome via per editarla (se nascosta)
     if (self.roadNameLabel.hidden && !self.isNavigating) {
@@ -2344,7 +2344,7 @@
     apply(self.settingsButton, @"settings", CGRectMake(w - 112, h - 60, 100, 40));
     apply(self.compassButton, @"compass", CGRectMake(12, h - 110, 52, 52));
     apply(self.logButton, @"log", CGRectMake(12, h - 170, 44, 44));
-    apply(self.roadNameLabel, @"streetname", CGRectMake(12, h - 220, w - 24, 140));
+    apply(self.roadNameLabel, @"streetname", CGRectMake(12, h - 420, w - 24, 340));
     apply(self.stopNavButton, @"stopnav", CGRectMake(12, h - 260, 52, 52));
     // Anche la pill edit (per ricordare posizione, ma è nascosta in modalità normale)
     if (self.layoutEditOverlay) {
