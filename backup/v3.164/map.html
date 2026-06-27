@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="lib/maplibre-gl.js"></script>
+<link href="lib/maplibre-gl.css" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body,#map{width:100%;height:100%;background:#fff;font-family:-apple-system,Helvetica,sans-serif}
+.maplibregl-ctrl-attrib{display:none!important}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// ===================================================================
+// LOG HELPER — invia log al pannello log integrato (ObjC)
+// ===================================================================
+function appLog(msg) {
+  try { webkit.messageHandlers.appLog.postMessage(msg); } catch(e) {}
+  console.log(msg);
+}
+
+// JS error catcher — invia errori al pannello log integrato
+window.onerror = function(msg, url, line) {
+  appLog("❌ JS ERR: " + msg + " (line " + line + ")");
+  return true;
+};
+// ===================================================================
+// CONFIG
+// ===================================================================
+const OSRM_URL = "https://router.project-osrm.org";
+const NOMINATIM_URL = "https://nominatim.openstreetmap.org";
+
+// ===================================================================
+// STATO
+// ===================================================================
+var userLat = 44.49, userLng = 11.34, userCourse = 0;
+var isNavigating = false;
+var navRoute = null;           // GeoJSON route geometry
+var navCoords = [];            // [lng, lat] array route coordinates
+var navInstruction = "";
+var navDistance = 0;
+var navETA = 0;
+var navSpeed = 0;
+var markerArrow = null;
+var markerDest = null;
+var navTimer = null;
+var hasGps = false;
+var _destLat = null, _destLon = null, _destName = "";
+var recalcLat = userLat, recalcLng = userLng;
+
+// ===================================================================
+// MAPLIBRE GL JS — con stile OpenFreeMap
+// ===================================================================
+var map = null;
+try {
+  map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [11.34, 44.49],
+    zoom: 14,
+    pitch: 50,
+    bearing: 0,
+    attributionControl: false
+  });
+} catch(e) {
+  appLog("❌ MapLibre init error: " + (e.message || e));
+}
+
+// Hide buildings when style loads
+if (map) {
+  map.on("style.load", function() {
+    try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
+    try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
+    appLog("✓ Stile map caricato (OpenFreeMap liberty)");
+  });
+}
+
+// ===================================================================
+// FUNZIONI CHIAMATE DA OBJC (via evaluateJavaScript)
+// ===================================================================
+
+// ---- NAVIGATION ENGINE (JS-side prediction at 60fps via rAF) ----
+// ObjC invia pushPosition a 5fps. JS interpola a 60fps con requestAnimationFrame.
+// ZERO bridge calls durante il loop. Arrow + camera sincroni su ogni frame.
+// ===================================================================
+
+var _navEngineSource = null;
+var _navEngineRunning = false;
+var _navEngineFrameId = null;
+var _navEnginePending = []; // buffer sliding di 2 posizioni
+var _camOffset = 0;     // offset laterale (destra/sinistra), slider
+var _camVertOffset = 0; // offset verticale (su/giù), slider
+var _camZoom = 16;      // zoom camera
+var _camPitch = 60;     // pitch camera
+
+// Init: crea source GeoJSON + Symbol Layer per la freccia
+function initNavEngine() {
+  if (_navEngineSource) return;
+  try {
+    // Source GeoJSON separata
+    map.addSource('nav-arrow', {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { bearing: 0 } }
+    });
+    
+    // Carica icona freccia (PNG via canvas)
+    var c = document.createElement('canvas');
+    c.width = 36; c.height = 36;
+    var ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 36, 36);
+    ctx.fillStyle = '#4488ff';
+    ctx.beginPath();
+    ctx.moveTo(18, 2); ctx.lineTo(30, 30); ctx.lineTo(18, 24); ctx.lineTo(6, 30); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(18, 15, 5, 0, 2*Math.PI); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+    map.addImage('nav-arrow-icon', ctx.getImageData(0, 0, 36, 36));
+    
+    // Symbol Layer
+    map.addLayer({
+      id: 'nav-arrow-layer',
+      type: 'symbol',
+      source: 'nav-arrow',
+      layout: {
+        'icon-image': 'nav-arrow-icon',
+        'icon-size': 1.2,
+        'icon-rotate': ['get', 'bearing'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true
+      }
+    });
+    
+    _navEngineSource = map.getSource('nav-arrow');
+    appLog("✅ Nav Engine init OK");
+  } catch(e) {
+    appLog("❌ Nav Engine init ERR: " + (e.message || e));
+  }
+}
+
+// Chiamata da ObjC a 5fps — pusha posizione corrente
+function pushPosition(lat, lng, bearing, ts) {
+  // Aggiorna posizione globale per navTick() JS che cerca closest point
+  userLat = lat;
+  userLng = lng;
+  _navEnginePending.push({ lat: lat, lng: lng, bearing: bearing, ts: performance.now() });
+  if (_navEnginePending.length > 2) _navEnginePending.shift();
+}
+
+// Avvia rAF loop
+function startNavEngine() {
+  if (_navEngineRunning) return;
+  initNavEngine();
+  _navEngineRunning = true;
+  appLog("▶️ Nav Engine rAF start");
+  
+  // Se abbiamo almeno una posizione, usala SUBITO (senza aspettare interpolazione)
+  if (_navEnginePending.length >= 1) {
+    var p = _navEnginePending[_navEnginePending.length - 1];
+    _navEngineSource.setData({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: { bearing: p.bearing }
+    });
+    _navEngineJumpTo(p.lat, p.lng, p.bearing);
+  }
+  
+  var _lastJumpBearing = -1;
+  function _navEngineJumpTo(lat, lng, bearing) {
+    try {
+      // Applica offset laterale/verticale al centro camera
+      var bearingRad = bearing * Math.PI / 180.0;
+      var latPerMeter = 1.0 / 111320.0;
+      var lonPerMeter = 1.0 / (111320.0 * Math.cos(lat * Math.PI / 180.0));
+      var offLat = _camOffset * Math.cos(bearingRad + Math.PI/2) * latPerMeter
+                + _camVertOffset * Math.cos(bearingRad) * latPerMeter;
+      var offLng = _camOffset * Math.sin(bearingRad + Math.PI/2) * lonPerMeter
+                + _camVertOffset * Math.sin(bearingRad) * lonPerMeter;
+      
+      var ctr = [lng + offLng, lat + offLat];
+      
+      // Posizione: jumpTo istantaneo (la differenza tra frame è sub-pixel)
+      map.jumpTo({ center: ctr, zoom: _camZoom, pitch: _camPitch });
+      
+      // Bearing: easeTo GRADUALE solo quando cambia (curve)
+      if (_lastJumpBearing < 0) {
+        map.jumpTo({ bearing: bearing });
+        _lastJumpBearing = bearing;
+      } else {
+        var bDiff = bearing - _lastJumpBearing;
+        if (bDiff > 180) bDiff -= 360;
+        if (bDiff < -180) bDiff += 360;
+        if (Math.abs(bDiff) > 0.5) {
+          map.easeTo({ bearing: bearing, duration: 60 });
+          _lastJumpBearing = bearing;
+        }
+      }
+    } catch(e) {}
+  }
+  
+  function tick(now) {
+    if (!_navEngineRunning) return;
+    
+    if (_navEnginePending.length >= 2) {
+      var last = _navEnginePending[0];
+      var next = _navEnginePending[1];
+      var elapsed = now - (last.ts || now);
+      var duration = (next.ts || now) - (last.ts || now);
+      var t = duration > 0 ? elapsed / duration : 1;
+      if (t > 1) t = 1;
+      
+      // Interpolazione lineare
+      var lat = last.lat + (next.lat - last.lat) * t;
+      var lng = last.lng + (next.lng - last.lng) * t;
+      var diff = next.bearing - last.bearing;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      var bearing = last.bearing + diff * t;
+      if (bearing < 0) bearing += 360;
+      if (bearing >= 360) bearing -= 360;
+      
+      // Aggiorna freccia
+      _navEngineSource.setData({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lng, lat] },
+        properties: { bearing: bearing }
+      });
+      
+      // Camera con offset + easeTo fluido
+      _navEngineJumpTo(lat, lng, bearing);
+    }
+    
+    _navEngineFrameId = requestAnimationFrame(tick);
+  }
+  _navEngineFrameId = requestAnimationFrame(tick);
+}
+
+// Ferma rAF loop
+function stopNavEngine() {
+  _navEngineRunning = false;
+  if (_navEngineFrameId) { cancelAnimationFrame(_navEngineFrameId); _navEngineFrameId = null; }
+  _navEnginePending.length = 0;
+  appLog("⏹️ Nav Engine rAF stop");
+}
+
+// ===================================================================
+// SEARCH (Nominatim)
+// ===================================================================
+var _searchReqId = 0;
+var _searchTimer = null;
+var _lastSearchResults = [];
+var _userCity = "Bologna";
+
+function _getUserCity() {
+  var url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat=' + userLat + '&lon=' + userLng + '&zoom=10';
+  fetch(url, { headers: { 'User-Agent': 'aNavigator/3.40 (iOS)' } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.address)
+        _userCity = d.address.city || d.address.town || d.address.village || d.address.municipality || "Bologna";
+    })
+    .catch(function() {});
+}
+_getUserCity();
+
+function _fmtDist(m) {
+  if (m < 1000) return Math.round(m) + " m";
+  return (m / 1000).toFixed(1) + " km";
+}
+
+function _parseOne(item) {
+  try {
+    var a = item.address || {};
+    var strada = a.road || a.pedestrian || a.footway || a.street || a.suburb || "";
+    var civico = a.house_number || "";
+    var nome = strada;
+    if (civico) nome += ", " + civico;
+    if (!nome) nome = item.name || (item.display_name ? item.display_name.split(',')[0].trim() : "?");
+    var citta = a.city || a.town || a.village || a.municipality || a.county || "";
+    var dist = distance(userLat, userLng, parseFloat(item.lat), parseFloat(item.lon));
+    if (isNaN(dist)) dist = 99999999;
+    var sub = citta || a.state || "";
+    if (sub) sub += " — " + _fmtDist(dist);
+    else sub = _fmtDist(dist);
+    return { displayName: nome, displaySubtitle: sub, name: nome, lat: parseFloat(item.lat), lon: parseFloat(item.lon), full: item.display_name || "", dist: dist, city: citta };
+  } catch(e) { return null; }
+}
+
+function _fetchData(url) {
+  return fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'aNavigator/3.40 (iOS; Italia)',
+      'Accept-Language': 'it, en'
+    }
+  })
+    .then(function(r) {
+      if (!r.ok) { appLog("  ⚠️ HTTP " + r.status); return []; }
+      return r.json();
+    })
+    .then(function(data) { return Array.isArray(data) ? data : []; })
+    .catch(function() { return []; });
+}
+
+function _searchAndPost(query, reqId) {
+  var url1 = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query)
+    + '&limit=30&countrycodes=it&addressdetails=1&lat=' + userLat + '&lon=' + userLng;
+  
+  _fetchData(url1).then(function(data1) {
+    if (reqId !== _searchReqId) return;
+    var parsed1 = [];
+    data1.forEach(function(item) { var p = _parseOne(item); if (p) parsed1.push(p); });
+    
+    if (!_userCity) {
+      parsed1.sort(function(a, b) { return a.dist - b.dist; });
+      _lastSearchResults = parsed1;
+      try { webkit.messageHandlers.searchResults.postMessage(parsed1); } catch(e) {}
+      return;
+    }
+    
+    var url2 = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query + " " + _userCity)
+      + '&limit=15&countrycodes=it&addressdetails=1&lat=' + userLat + '&lon=' + userLng;
+    
+    _fetchData(url2).then(function(data2) {
+      if (reqId !== _searchReqId) return;
+      var parsed2 = [];
+      data2.forEach(function(item) { var p = _parseOne(item); if (p) parsed2.push(p); });
+      
+      var all = parsed1.concat(parsed2);
+      var seen = {};
+      var merged = [];
+      for (var i = 0; i < all.length; i++) {
+        var key = Math.round(all[i].lat * 1000) + "_" + Math.round(all[i].lon * 1000) + "_" + (all[i].name || "").substring(0, 30);
+        if (seen[key]) continue;
+        seen[key] = true;
+        merged.push(all[i]);
+      }
+      merged.sort(function(a, b) { return a.dist - b.dist; });
+      
+      _lastSearchResults = merged;
+      try { webkit.messageHandlers.searchResults.postMessage(merged); } catch(e) {}
+    }).catch(function() {
+      if (reqId === _searchReqId) {
+        parsed1.sort(function(a, b) { return a.dist - b.dist; });
+        _lastSearchResults = parsed1;
+        try { webkit.messageHandlers.searchResults.postMessage(parsed1); } catch(e) {}
+      }
+    });
+  }).catch(function() {
+    if (reqId === _searchReqId && _lastSearchResults.length > 0)
+      try { webkit.messageHandlers.searchResults.postMessage(_lastSearchResults); } catch(e) {}
+  });
+}
+
+function nativeSearchOSM(query) {
+  try {
+    query = (query || "").trim();
+    if (_searchTimer) { clearTimeout(_searchTimer); _searchTimer = null; }
+    
+    if (query.length < 2) {
+      if (_lastSearchResults.length > 0)
+        try { webkit.messageHandlers.searchResults.postMessage(_lastSearchResults); } catch(e) {}
+      return;
+    }
+    
+    _searchTimer = setTimeout(function() {
+      _searchTimer = null;
+      _searchAndPost(query, ++_searchReqId);
+    }, 1500);
+  } catch(e) {
+    appLog("❌ Search error: " + e.message);
+  }
+}
+
+function _ensureMapReady(callback) {
+  if (map && map.loaded && map.loaded()) {
+    callback();
+    return;
+  }
+  appLog("⏳ Mappa non pronta, attendo...");
+  map.once("style.load", function() {
+    try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
+    callback();
+  });
+  setTimeout(function() { callback(); }, 500);
+}
+
+function _waitMapAndAddRoute(geoJson, toLng, toLat) {
+  _ensureMapReady(function() {
+    clearRoute();
+    try {
+      map.addSource(_routeLayerId, {
+        type: "geojson",
+        data: {type: "Feature", geometry: geoJson}
+      });
+      map.addLayer({
+        id: _routeLayerId,
+        type: "line",
+        source: _routeLayerId,
+        layout: {"line-join": "round", "line-cap": "round"},
+        paint: {"line-color": "#22cc44", "line-width": 6, "line-opacity": 0.9}
+      });
+      appLog("✅ Layer route aggiunto");
+    } catch(e) {
+      appLog("❌ Errore layer route: " + e.message);
+    }
+    
+    try {
+      if (markerDest) { markerDest.remove(); markerDest = null; }
+    } catch(e) {}
+    var el = document.createElement("div");
+    el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e74c3c;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)";
+    markerDest = new maplibregl.Marker({element:el, anchor:"center"})
+      .setLngLat([toLng, toLat])
+      .addTo(map);
+    appLog("✅ Marker destinazione aggiunto a " + toLng.toFixed(4) + "," + toLat.toFixed(4));
+    
+    try {
+      var bounds = new maplibregl.LngLatBounds();
+      geoJson.coordinates.forEach(function(c) { bounds.extend(c); });
+      map.fitBounds(bounds, {padding:80, pitch:50, maxZoom:16});
+      appLog("✅ fitBounds completato");
+    } catch(e) {
+      appLog("❌ Errore fit bounds: " + e.message);
+    }
+    
+    try { webkit.messageHandlers.routeReady.postMessage("ok"); } catch(e) {}
+  });
+}
+
+// ---- ROUTING (OSRM) ----
+var _routeLayerId = "route-line-v2";
+
+function clearRoute() {
+  try { map.removeLayer(_routeLayerId); } catch(e) {}
+  try { map.removeSource(_routeLayerId); } catch(e) {}
+}
+
+function calculateRoute(fromLat, fromLng, toLat, toLng, name) {
+  _destLat = toLat; _destLon = toLng; _destName = name || "";
+  clearRoute();
+  clearDestination();
+  
+  appLog("🧭 Calcolo percorso: " + (fromLat.toFixed(4)) + "," + (fromLng.toFixed(4)) + " → " + (toLat.toFixed(4)) + "," + (toLng.toFixed(4)));
+  
+  var url = OSRM_URL + "/route/v1/driving/" + fromLng + "," + fromLat + ";" + toLng + "," + toLat + "?geometries=geojson&steps=true&overview=full";
+  
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function() { controller.abort(); appLog("⏱️ OSRM timeout dopo 10s"); }, 10000);
+  
+  return fetch(url, {signal: controller.signal})
+    .then(function(r) {
+      clearTimeout(timeoutId);
+      if (!r.ok) { appLog("⚠️ OSRM HTTP " + r.status); return null; }
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data || !data.routes || data.routes.length === 0) {
+        appLog("⚠️ Nessun percorso trovato");
+        return null;
+      }
+      var route = data.routes[0];
+      navRoute = route.geometry;
+      navCoords = route.geometry.coordinates.slice();
+      navDistance = route.distance;
+      navETA = route.duration;
+      
+      try {
+        var simArr = [];
+        for (var si = 0; si < navCoords.length; si++) {
+          simArr.push({lat: navCoords[si][1], lon: navCoords[si][0]});
+        }
+        webkit.messageHandlers.simCoords.postMessage(JSON.stringify(simArr));
+      } catch(e) {
+        appLog("⚠️ simCoords postMessage error: " + e.message);
+      }
+      
+      _waitMapAndAddRoute(route.geometry, toLng, toLat);
+      
+      return JSON.stringify({
+        distance: route.distance,
+        duration: route.duration,
+        name: name || ""
+      });
+    })
+    .catch(function(err) {
+      appLog("❌ OSRM fetch error: " + (err.message || err));
+      return null;
+    });
+}
+
+function startNavigation() {
+  isNavigating = true;
+  hasGps = true;
+  if (navTimer) clearInterval(navTimer);
+  navTimer = setInterval(function() { navTick(); }, 1000);
+}
+
+function navTick() {
+  if (!isNavigating || !hasGps) return;
+  
+  if (navCoords.length < 2) {
+    endNavigation();
+    return;
+  }
+  
+  var closest = null, minDist = Infinity;
+  for (var i = 0; i < navCoords.length; i++) {
+    var d = distance(userLat, userLng, navCoords[i][1], navCoords[i][0]);
+    if (d < minDist) { minDist = d; closest = i; }
+  }
+  
+  if (closest > 3) navCoords = navCoords.slice(closest);
+  
+  var remaining = 0;
+  for (var j = 1; j < navCoords.length; j++) {
+    remaining += distance(navCoords[j-1][1], navCoords[j-1][0], navCoords[j][1], navCoords[j][0]);
+  }
+  
+  var instruction = getInstruction(navCoords);
+  
+  if (navCoords.length < 2 && remaining < 30) {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navigationEnd)
+      window.webkit.messageHandlers.navigationEnd.postMessage("");
+    return;
+  }
+  
+  navDistance = remaining;
+  
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.navUpdate) {
+    var update = JSON.stringify({
+      instruction: instruction,
+      distance: remaining,
+      eta: remaining / 13.9,
+      speed: navSpeed,
+      arrived: false
+    });
+    window.webkit.messageHandlers.navUpdate.postMessage(update);
+  }
+  
+  if (minDist > 30 && navCoords.length > 2) {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.error)
+      window.webkit.messageHandlers.error.postMessage("Fuori rotta, ricalcolo...");
+  }
+}
+
+function getInstruction(coords) {
+  if (coords.length < 3) return "Prosegui dritto";
+  var b1 = bearing(coords[0][1], coords[0][0], coords[1][1], coords[1][0]);
+  var b2 = bearing(coords[1][1], coords[1][0], coords[2][1], coords[2][0]);
+  var turn = b2 - b1;
+  if (turn > 180) turn -= 360;
+  if (turn < -180) turn += 360;
+  if (turn > 120 || turn < -120) return "Inversione a U";
+  if (turn > 60) return "Svolta a destra";
+  if (turn > 20) return "Leggermente a destra";
+  if (turn < -60) return "Svolta a sinistra";
+  if (turn < -20) return "Leggermente a sinistra";
+  return "Prosegui dritto";
+}
+
+function endNavigation() {
+  isNavigating = false;
+  if (navTimer) { clearInterval(navTimer); navTimer = null; }
+  clearRoute();
+  clearDestination();
+  stopNavEngine();
+}
+
+// ---- ROUTING (OSRM) — con gestione errori robusta ----
+var _routeLayerId = "route-line";
+
+function km(m) { return (m/1000).toFixed(1) + " km"; }
+
+function clearRoute() {
+  try { map.removeLayer(_routeLayerId); } catch(e) {}
+  try { map.removeSource(_routeLayerId); } catch(e) {}
+}
+
+function clearDestination() {
+  if (markerDest) { markerDest.remove(); markerDest = null; }
+}
+
+function recalculateRoute() {
+  if (_destLat === null || _destLon === null) return;
+  clearRoute();
+  clearDestination();
+  var url = OSRM_URL + "/route/v1/driving/" + recalcLng + "," + recalcLat + ";" + _destLon + "," + _destLat + "?geometries=geojson&steps=true&overview=full";
+  return fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.routes || data.routes.length === 0) {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.error)
+          window.webkit.messageHandlers.error.postMessage("Nessun percorso trovato");
+        return null;
+      }
+      var route = data.routes[0];
+      navRoute = route.geometry;
+      navCoords = route.geometry.coordinates.slice();
+      navDistance = route.distance;
+      navETA = route.duration;
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: {type:"geojson",data:{type:"Feature",geometry:route.geometry}},
+        paint: {"line-color":"#22cc44","line-width":6,"line-opacity":0.8}
+      });
+      var el = document.createElement("div");
+      el.style.cssText = "width:16px;height:16px;border-radius:50%;background:#e74c3c;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)";
+      markerDest = new maplibregl.Marker({element:el,anchor:"center"})
+        .setLngLat([_destLon, _destLat])
+        .addTo(map);
+      var bounds = new maplibregl.LngLatBounds();
+      route.geometry.coordinates.forEach(function(c) { bounds.extend(c); });
+      map.fitBounds(bounds, {padding:80, pitch:50});
+      var result = JSON.stringify({distance:route.distance,duration:route.duration,name:_destName});
+      return result;
+    });
+}
+
+function snapToRoute(lat, lng) {
+  if (!navCoords || navCoords.length < 2) return JSON.stringify({lat:lat, lon:lng});
+  var closest = navCoords[0];
+  var minDist = Infinity;
+  for (var i = 0; i < navCoords.length; i++) {
+    var d = distance(lat, lng, navCoords[i][1], navCoords[i][0]);
+    if (d < minDist) { minDist = d; closest = navCoords[i]; }
+  }
+  return JSON.stringify({lat:closest[1], lon:closest[0]});
+}
+
+function coordinateAheadOnRoute(lat, lng, meters) {
+  if (!navCoords || navCoords.length < 2) return JSON.stringify({lat:lat, lon:lng});
+  var closest = 0, minDist = Infinity;
+  for (var i = 0; i < navCoords.length; i++) {
+    var d = distance(lat, lng, navCoords[i][1], navCoords[i][0]);
+    if (d < minDist) { minDist = d; closest = i; }
+  }
+  var accumulated = 0;
+  for (var j = closest + 1; j < navCoords.length; j++) {
+    var seg = distance(navCoords[j-1][1], navCoords[j-1][0], navCoords[j][1], navCoords[j][0]);
+    accumulated += seg;
+    if (accumulated >= meters) {
+      return JSON.stringify({lat:navCoords[j][1], lon:navCoords[j][0]});
+    }
+  }
+  var last = navCoords[navCoords.length - 1];
+  return JSON.stringify({lat:last[1], lon:last[0]});
+}
+
+function getRouteCoords() {
+  if (!navCoords || navCoords.length === 0) return "[]";
+  var result = [];
+  for (var i = 0; i < navCoords.length; i++) {
+    result.push({lat: navCoords[i][1], lon: navCoords[i][0]});
+  }
+  return JSON.stringify(result);
+}
+
+function sendSimCoords() {
+  webkit.messageHandlers.simCoords.postMessage(getRouteCoords());
+}
+
+function getNavState() {
+  return JSON.stringify({
+    instruction: getInstruction(navCoords),
+    distanceRemaining: navDistance,
+    etaSeconds: navDistance / 13.9,
+    speedKmh: navSpeed,
+    arrived: navCoords.length < 2 && navDistance < 30
+  });
+}
+
+function getMapZoom() {
+  return map.getZoom();
+}
+
+function getMapBounds() {
+  var b = map.getBounds();
+  return JSON.stringify({
+    south: b.getSouth(),
+    north: b.getNorth(),
+    west: b.getWest(),
+    east: b.getEast()
+  });
+}
+
+// ---- BUS STOPS ----
+function busStopsFromJSON(jsonStr) {
+  try {
+    var stops = JSON.parse(jsonStr);
+    if (window._busStopMarkers) {
+      window._busStopMarkers.forEach(function(m) { m.remove(); });
+    }
+    window._busStopMarkers = [];
+    
+    stops.forEach(function(s) {
+      var lat = (s.lat !== undefined) ? parseFloat(s.lat) : (s.center && s.center.lat !== undefined ? parseFloat(s.center.lat) : null);
+      var lon = (s.lon !== undefined) ? parseFloat(s.lon) : (s.center && s.center.lon !== undefined ? parseFloat(s.center.lon) : null);
+      if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) return;
+      
+      var el = document.createElement("div");
+      el.style.cssText = "width:12px;height:12px;border-radius:50%;background:#f39c12;border:2px solid #fff";
+      var m = new maplibregl.Marker({element:el,anchor:"center"})
+        .setLngLat([lon, lat])
+        .addTo(map);
+      window._busStopMarkers.push(m);
+    });
+    return window._busStopMarkers.length;
+  } catch(e) {
+    console.error("busStopsFromJSON error:", e);
+    return 0;
+  }
+}
+
+function busStopsSetVisible(visible) {
+  if (window._busStopMarkers) {
+    window._busStopMarkers.forEach(function(m) {
+      m.getElement().style.display = visible ? "block" : "none";
+    });
+  }
+}
+
+// ---- GPS SPEED UPDATE (called from navTick) ----
+function setSpeed(speedKmh) {
+  navSpeed = speedKmh;
+}
+
+// ===================================================================
+// HELPERS
+// ===================================================================
+function distance(lat1, lng1, lat2, lng2) {
+  var R = 6371000;
+  var dLat = (lat2-lat1)*Math.PI/180;
+  var dLng = (lng2-lng1)*Math.PI/180;
+  var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearing(lat1, lng1, lat2, lng2) {
+  var dL = (lng2-lng1)*Math.PI/180;
+  var y = Math.sin(dL)*Math.cos(lat2*Math.PI/180);
+  var x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dL);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+
+// ===================================================================
+// INIT — center on Bologna once map loads
+// ===================================================================
+if (map) {
+  map.on("load", function() {
+    initNavEngine();
+    map.flyTo({center:[11.34, 44.49], zoom:14, pitch:50});
+    appLog("✓ Mappa pronta (OpenFreeMap liberty, zoom 14)");
+    setTimeout(function() { _getUserCity(); }, 1000);
+  });
+} else {
+  appLog("⚠️ Mappa non caricata, alcune funzioni potrebbero non funzionare");
+}
+
+// ===================================================================
+// FUNZIONI CHIAMATE DA OBJC (impostazioni mappa)
+// ===================================================================
+function animateCamera(lat, lon, zoom, bearing, pitch) {
+  try {
+    map.jumpTo({ center: [lon, lat], zoom: zoom || 16, bearing: bearing || 0, pitch: pitch || 60 });
+    appLog("📷 animateCamera → zoom=" + (zoom||16) + " pitch=" + (pitch||60) + " bearing=" + (bearing||0));
+  } catch(e) {
+    appLog("⚠️ animateCamera error: " + (e.message || e));
+  }
+}
+var _lastBrightness = 1.0;
+var _isDark = false;
+
+function setMapType(type) {
+  if (type === 1) {
+    document.getElementById("map").style.filter = "invert(0.9) hue-rotate(180deg) brightness(0.7)";
+    _isDark = true;
+    appLog("→ setMapType(1) modalità notturna ON");
+  } else {
+    document.getElementById("map").style.filter = "";
+    _isDark = false;
+    appLog("→ setMapType(0) modalità notturna OFF");
+  }
+}
+
+function setMapBrightness(val) {
+  var bright = 1.0 - val * 0.95;
+  _lastBrightness = bright;
+  if (_isDark) {
+    document.getElementById("map").style.filter = "brightness(" + (bright*0.7) + ") invert(0.9) hue-rotate(180deg)";
+  } else {
+    document.getElementById("map").style.filter = "brightness(" + bright + ")";
+  }
+  appLog("→ setMapBrightness(" + val.toFixed(2) + ") → filtro luminosità " + bright.toFixed(2));
+}
+</script>
+</body>
+</html>
