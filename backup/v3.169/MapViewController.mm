@@ -2057,46 +2057,73 @@
 - (void)enterLayoutEditMode {
     _layoutEditMode = YES;
     
-    // Overlay semi-trasparente con istruzioni + tasti
+    // Overlay full-screen con istruzioni + tasti SALVA/ANNULLA in fondo (sotto navBar)
     if (!self.layoutEditOverlay) {
         CGFloat w = self.view.bounds.size.width;
-        UIView *overlay = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 160)];
-        overlay.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.7];
-        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        CGFloat h = self.view.bounds.size.height;
+        UIView *overlay = [[UIView alloc] initWithFrame:self.view.bounds];
+        overlay.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.35];
+        overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         overlay.userInteractionEnabled = YES;
         [self.view addSubview:overlay];
         
-        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 20, w - 32, 30)];
+        // Barra superiore info (sotto eventuale navBar)
+        UIView *topBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 100)];
+        topBar.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
+        topBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [overlay addSubview:topBar];
+        
+        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, w - 32, 26)];
         title.text = @"Modalità edit schermo";
-        title.font = [UIFont boldSystemFontOfSize:22];
+        title.font = [UIFont boldSystemFontOfSize:20];
         title.textColor = [UIColor whiteColor];
         title.textAlignment = NSTextAlignmentCenter;
         title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [overlay addSubview:title];
+        [topBar addSubview:title];
         
-        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(16, 55, w - 32, 20)];
+        UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(16, 44, w - 32, 18)];
         sub.text = @"Sposta i pulsanti dove vuoi";
-        sub.font = [UIFont systemFontOfSize:14];
+        sub.font = [UIFont systemFontOfSize:13];
         sub.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.6];
         sub.textAlignment = NSTextAlignmentCenter;
         sub.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [overlay addSubview:sub];
+        [topBar addSubview:sub];
         
-        // X cancel
-        UIButton *xBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        xBtn.frame = CGRectMake(12, 24, 44, 44);
-        xBtn.tintColor = [UIColor whiteColor];
-        [xBtn setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
+        // Barra inferiore con tasti SALVA (✓ verde) e ANNULLA (✕ bianco) — SEMPRE visibili
+        UIView *bottomBar = [[UIView alloc] initWithFrame:CGRectMake(0, h - 100, w, 100)];
+        bottomBar.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.75];
+        bottomBar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+        [overlay addSubview:bottomBar];
+        
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(16, 8, w - 32, 16)];
+        hint.text = @"Trascina i pulsanti, poi salva";
+        hint.font = [UIFont systemFontOfSize:12];
+        hint.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
+        hint.textAlignment = NSTextAlignmentCenter;
+        hint.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [bottomBar addSubview:hint];
+        
+        // ✕ Annulla (grigio su cerchio bianco, 48×48)
+        UIButton *xBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+        xBtn.frame = CGRectMake(w / 2 - 80, 30, 48, 48);
+        xBtn.backgroundColor = [UIColor whiteColor];
+        xBtn.layer.cornerRadius = 24;
+        xBtn.tintColor = [UIColor grayColor];
+        [xBtn setTitle:@"✕" forState:UIControlStateNormal];
+        [xBtn setTitleColor:[UIColor grayColor] forState:UIControlStateNormal];
+        xBtn.titleLabel.font = [UIFont boldSystemFontOfSize:22];
         [xBtn addTarget:self action:@selector(layoutCancelTapped) forControlEvents:UIControlEventTouchUpInside];
-        [overlay addSubview:xBtn];
+        [bottomBar addSubview:xBtn];
         
-        // ✓ save
+        // ✓ Salva (icona spunta)
         UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        saveBtn.frame = CGRectMake(w - 56, 24, 44, 44);
+        saveBtn.frame = CGRectMake(w / 2 + 32, 30, 48, 48);
         saveBtn.tintColor = [UIColor systemGreenColor];
         [saveBtn setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
+        saveBtn.imageView.contentMode = UIViewContentModeScaleAspectFit;
+        saveBtn.imageView.transform = CGAffineTransformMakeScale(1.3, 1.3);
         [saveBtn addTarget:self action:@selector(layoutSaveTapped) forControlEvents:UIControlEventTouchUpInside];
-        [overlay addSubview:saveBtn];
+        [bottomBar addSubview:saveBtn];
         
         self.layoutEditOverlay = overlay;
     }
