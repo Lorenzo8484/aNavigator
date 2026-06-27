@@ -170,8 +170,12 @@ function startNavEngine() {
     _navEngineJumpTo(p.lat, p.lng, p.bearing);
   }
   
-  var _lastJumpBearing = -1;
+  var _camFrameCount = 0;
   function _navEngineJumpTo(lat, lng, bearing) {
+    // Camera update ogni 3 rAF frame (20fps) — easeTo ha tempo di completare senza sovrapporsi
+    _camFrameCount++;
+    if (_camFrameCount < 3) return;
+    _camFrameCount = 0;
     try {
       // Applica offset laterale/verticale al centro camera
       var bearingRad = bearing * Math.PI / 180.0;
@@ -182,24 +186,14 @@ function startNavEngine() {
       var offLng = _camOffset * Math.sin(bearingRad + Math.PI/2) * lonPerMeter
                 + _camVertOffset * Math.sin(bearingRad) * lonPerMeter;
       
-      var ctr = [lng + offLng, lat + offLat];
-      
-      // Posizione: jumpTo istantaneo (la differenza tra frame è sub-pixel)
-      map.jumpTo({ center: ctr, zoom: _camZoom, pitch: _camPitch });
-      
-      // Bearing: easeTo GRADUALE solo quando cambia (curve)
-      if (_lastJumpBearing < 0) {
-        map.jumpTo({ bearing: bearing });
-        _lastJumpBearing = bearing;
-      } else {
-        var bDiff = bearing - _lastJumpBearing;
-        if (bDiff > 180) bDiff -= 360;
-        if (bDiff < -180) bDiff += 360;
-        if (Math.abs(bDiff) > 0.5) {
-          map.easeTo({ bearing: bearing, duration: 60 });
-          _lastJumpBearing = bearing;
-        }
-      }
+      map.easeTo({
+        center: [lng + offLng, lat + offLat],
+        bearing: bearing,
+        zoom: _camZoom,
+        pitch: _camPitch,
+        duration: 50,
+        easing: function(t) { return t; }
+      });
     } catch(e) {}
   }
   
