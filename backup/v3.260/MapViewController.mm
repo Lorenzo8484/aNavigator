@@ -1391,9 +1391,8 @@
     double firstLon = [first[@"lon"] doubleValue];
     [self appLog:@"   prima posizione: %.6f, %.6f", firstLat, firstLon];
     [self setSimulatedLocation:firstLat lon:firstLon course:0];
-    // FORZA pushPosition + startNavEngine SUBITO (senza aspettare 12 tick)
+    // FORZA pushPosition SUBITO (senza aspettare 12 tick)
     [self pushPositionToJS];
-    [self.webView evaluateJavaScript:@"if(!_navEngineRunning)startNavEngine();" completionHandler:nil];
     _simTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/60.0 target:self selector:@selector(simTick) userInfo:nil repeats:YES];
     [self appLog:@"✅ Simulazione avviata: %lu coord, %.3f m/tick, 60fps", (unsigned long)[_simCoords count], _simStepPerTick];
 }
@@ -1429,7 +1428,6 @@
             _isSimulating = NO;
             [_simTimer invalidate]; _simTimer = nil;
             _simCoords = nil;
-            [self.webView evaluateJavaScript:@"stopNavEngine();" completionHandler:nil];
         }
         return;
     }

@@ -1281,13 +1281,8 @@ function startBusNavWithCoords(combined, busData, lastStop) {
   navETA = _totalRouteDist / 13.9;
   isNavigating = true;
   hasGps = true;
-  // Push posizione corrente 2x per avere buffer >= 2 per interpolazione immediata
-  var now = performance.now();
-  _navEnginePending.push({lat: userLat, lng: userLng, bearing: userCourse || 0, ts: now - 50});
-  _navEnginePending.push({lat: userLat, lng: userLng, bearing: userCourse || 0, ts: now});
   if (navTimer) clearInterval(navTimer);
   navTimer = setInterval(function() { navTick(); }, 1000);
-  startNavEngine();
   
   // Notifica ObjC
   try { webkit.messageHandlers.navigationStart.postMessage(JSON.stringify({
