@@ -1538,7 +1538,7 @@
     [self hideGoButton];
     
     // Prende le fermate di andata dal JS (_busNavData.trip.stops)
-    [self.webView evaluateJavaScript:@"JSON.stringify(_busNavData && _busNavData.trip ? _busNavData.trip.stops.map(function(s){return{lat:s.lat,lon:s.lon,name:s.name}}) : [])" completionHandler:^(id res, NSError *err) {
+    [self.webView evaluateJavaScript:@"JSON.stringify(_busNavData && _busNavData.trip && _busNavData.trip.stops ? _busNavData.trip.stops.map(function(s){return{lat:s.lat,lon:s.lon,name:s.name}}) : [])" completionHandler:^(id res, NSError *err) {
         if (err || ![res isKindOfClass:[NSString class]]) {
             [self appLog:@"❌ Sim Bus: impossibile ottenere fermate dal JS"];
             return;
