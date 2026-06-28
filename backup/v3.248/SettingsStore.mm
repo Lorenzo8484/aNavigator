@@ -164,4 +164,14 @@ static NSString* alertLevelName(AlertLevel a) {
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"recentDests"];
 }
 
+- (void)removeRecentDestination:(NSDictionary *)dest {
+    NSMutableArray *arr = [[self recentDestinations] mutableCopy];
+    [arr removeObject:dest];
+    NSMutableArray *clean = [NSMutableArray array];
+    for (NSDictionary *d in arr) {
+        [clean addObject:@{@"lat": d[@"lat"], @"lon": d[@"lon"], @"name": d[@"name"] ?: @""}];
+    }
+    [[NSUserDefaults standardUserDefaults] setObject:clean forKey:@"recentDests"];
+}
+
 @end
