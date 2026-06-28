@@ -1072,6 +1072,14 @@ function selectBusLine(lineNum, dir) {
         if (markerDest) { try { markerDest.setLngLat(lastRc); } catch(ee) {} }
         // Salva per navigazione
         _busOsrmCoords = roadCoords;
+        // Invia coordinate a ObjC per simulazione bus
+        try {
+          var simArr = [];
+          for (var si = 0; si < roadCoords.length; si++) {
+            simArr.push({lat: roadCoords[si][1], lon: roadCoords[si][0]});
+          }
+          webkit.messageHandlers.simCoords.postMessage(JSON.stringify(simArr));
+        } catch(e) {}
       } else {
         appLog("⚠️ OSRM stops route empty, keeping raw shape");
         _busOsrmCoords = null;

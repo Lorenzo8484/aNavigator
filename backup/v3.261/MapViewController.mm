@@ -1297,11 +1297,8 @@
         [[SettingsStore shared] addRecentDestination:self->_pendingDestDict];
         
         if ([self->_pendingDestDict[@"isBus"] boolValue]) {
-            // Bus mode: start bus navigation
-            [self.webView evaluateJavaScript:@"startBusNavigation();" completionHandler:^(id res, NSError *err) {
-                if (err) [self appLog:@"❌ startBusNavigation JS error: %@", err.localizedDescription];
-                else [self appLog:@"✅ startBusNavigation JS ok"];
-            }];
+            // Bus mode: avvia simulazione bus con coordinate già ricevute
+            [self fireSimulation];
         } else {
             // Car mode: standard navigation
             [self startNavigationTo:self->_pendingDestDict];
@@ -1320,11 +1317,8 @@
     if (self->_pendingDestDict) {
         [self appLog:@"   pendingDestDict ok: %@", self->_pendingDestDict];
         [[SettingsStore shared] addRecentDestination:self->_pendingDestDict];
-        // Chiama startBusNavigation('ritorno') per navigare il percorso di ritorno
-        [self.webView evaluateJavaScript:@"startBusNavigation('ritorno');" completionHandler:^(id res, NSError *err) {
-            if (err) [self appLog:@"❌ startBusNavigation(ritorno) JS error: %@", err.localizedDescription];
-            else [self appLog:@"✅ startBusNavigation(ritorno) JS ok"];
-        }];
+        // Avvia simulazione bus per percorso ritorno (le coordinate sono già in _simCoords via bus-route-v2)
+        [self fireSimulation];
         self->_pendingDestDict = nil;
     } else {
         [self appLog:@"❌ RITORNO: _pendingDestDict è NIL"];
