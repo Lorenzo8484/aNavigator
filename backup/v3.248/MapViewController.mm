@@ -4,7 +4,6 @@
 #import "BusViewController.h"
 #import <WebKit/WebKit.h>
 #import <AVFoundation/AVFoundation.h>
-#import <QuartzCore/QuartzCore.h>
 
 @interface MapViewController () <CLLocationManagerDelegate, WKNavigationDelegate, WKScriptMessageHandler, UISearchBarDelegate, UITableViewDataSource, UITableViewDelegate>
 @end
@@ -31,9 +30,6 @@
     NSMutableArray *_busStopAnnotations; // array of NSDictionary {lat, lon, name}
     NSString *_lastSpokenInstruction;
     UIButton *_simButton;
-    UIButton *_retButton;
-    BOOL _hasReturnTrip;
-    BOOL _hasBusRoute; // YES quando un percorso autobus è visualizzato (blocca centerOnUser)
     NSDictionary *_pendingSimDestDict;
     // Simulazione
     BOOL _isSimulating;
@@ -41,9 +37,7 @@
     NSArray *_simCoords; // array di {lat, lon}
     NSInteger _simIndex;
     double _simStepPerTick; // metri per tick simulazione
-    double _simLat, _simLon, _simCourse; // posizione interpolata (scritta da simTick, letta da pushPosition)
-    BOOL _hasSimPos;
-    int _posUpdateCounter;
+    int _posUpdateCounter; // contatore per updatePosition (ogni 6 tick = ~100ms)
     // Movimento fluido (20 fps)
     BOOL _isInterpolating;
     CLLocationCoordinate2D _interpFrom;
@@ -70,7 +64,6 @@
     [self setupSearchOverlay];
     [self setupButtons];
     [self applyMenuOpacity];
-    [self loadSavedLayout];
     // Tap sulla mappa chiude ricerca/tastiera
     UITapGestureRecognizer *mapTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissSearch)];
     mapTap.cancelsTouchesInView = NO;
@@ -137,8 +130,6 @@
     [userCtrl addScriptMessageHandler:self name:@"routeReady"];
     [userCtrl addScriptMessageHandler:self name:@"simCoords"];
     [userCtrl addScriptMessageHandler:self name:@"appLog"];
-    [userCtrl addScriptMessageHandler:self name:@"navigationStart"];
-    [userCtrl addScriptMessageHandler:self name:@"requestGtfs"];
     
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.userContentController = userCtrl;
@@ -334,74 +325,6 @@
     [self.logButton setImage:[UIImage systemImageNamed:@"terminal.fill"] forState:UIControlStateNormal];
     [self.logButton addTarget:self action:@selector(toggleLogPanel) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.logButton];
-    
-    // 🛣️ Pill via (40pt, scura, solo nome strada)
-    self.roadNameLabel = [[UIView alloc] init];
-    self.roadNameLabel.frame = CGRectMake(12, h - 420, w - 24, 40);
-    self.roadNameLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    self.roadNameLabel.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.65];
-    self.roadNameLabel.layer.cornerRadius = 14;
-    self.roadNameLabel.layer.masksToBounds = YES;
-    self.roadNameLabel.layer.borderWidth = 1.5;
-    self.roadNameLabel.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.25].CGColor;
-    self.roadNameLabel.hidden = YES;
-    [self.view addSubview:self.roadNameLabel];
-    
-    self.roadStreetLabel = [[UILabel alloc] init];
-    self.roadStreetLabel.frame = CGRectMake(8, 0, w - 40, 40);
-    self.roadStreetLabel.numberOfLines = 1;
-    self.roadStreetLabel.font = [UIFont boldSystemFontOfSize:18];
-    self.roadStreetLabel.textColor = [UIColor whiteColor];
-    self.roadStreetLabel.textAlignment = NSTextAlignmentCenter;
-    self.roadStreetLabel.text = @"";
-    [self.roadNameLabel addSubview:self.roadStreetLabel];
-    
-    // 🕒 3 pillole separate per ETA, Tempo, Distanza (draggabili)
-    UIView *(^makePill)(UILabel*, CGFloat, CGFloat) = ^(UILabel *label, CGFloat px, CGFloat py) {
-        UIView *pill = [[UIView alloc] init];
-        pill.frame = CGRectMake(px, py, 120, 55);
-        pill.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.55];
-        pill.layer.cornerRadius = 16;
-        pill.layer.masksToBounds = YES;
-        pill.layer.borderWidth = 1.5;
-        pill.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.25].CGColor;
-        pill.hidden = YES;
-        [self.view addSubview:pill];
-        
-        label.frame = CGRectMake(4, 2, 112, 51);
-        label.numberOfLines = 2;
-        label.font = [UIFont boldSystemFontOfSize:28];
-        label.textColor = [UIColor whiteColor];
-        label.textAlignment = NSTextAlignmentCenter;
-        label.text = @"";
-        [pill addSubview:label];
-        return pill;
-    };
-    
-    // Crea i 3 label per le pillole (allocati qui, NON dentro la pill via)
-    self.roadETALabel = [[UILabel alloc] init];
-    self.roadTimeLabel = [[UILabel alloc] init];
-    self.roadDistLabel = [[UILabel alloc] init];
-    
-    self.roadETAPill = makePill(self.roadETALabel, w - 300, h - 220);
-    self.roadTimePill = makePill(self.roadTimeLabel, w - 195, h - 220);
-    self.roadDistPill = makePill(self.roadDistLabel, w - 90, h - 220);
-    
-    // ⏹️ Stop button (cerchio rosso, visibile solo in navigazione, in alto a destra)
-    self.stopNavButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.stopNavButton.frame = CGRectMake(w - 56, 54, 44, 44);
-    self.stopNavButton.autoresizingMask = UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
-    self.stopNavButton.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.7];
-    self.stopNavButton.layer.cornerRadius = 22;
-    self.stopNavButton.layer.borderWidth = 2;
-    self.stopNavButton.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5].CGColor;
-    [self.stopNavButton setImage:[UIImage systemImageNamed:@"stop.fill"] forState:UIControlStateNormal];
-    self.stopNavButton.tintColor = [UIColor whiteColor];
-    self.stopNavButton.imageView.contentMode = UIViewContentModeScaleAspectFit;
-    self.stopNavButton.imageEdgeInsets = UIEdgeInsetsMake(12, 12, 12, 12);
-    [self.stopNavButton addTarget:self action:@selector(endNavigation) forControlEvents:UIControlEventTouchUpInside];
-    self.stopNavButton.hidden = YES;
-    [self.view addSubview:self.stopNavButton];
 }
 
 - (void)setupNavBar {
@@ -612,13 +535,6 @@
     self.searchBar.frame = CGRectMake(12, safeTop + 8, w - 24, 44);
     self.searchBar.showsCancelButton = YES;
     
-    // Placeholder dinamico per bus mode
-    if ([SettingsStore shared].transportMode == TransportModeBus) {
-        self.searchBar.searchTextField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Cerca linea autobus (es. 93)..." attributes:@{NSForegroundColorAttributeName: [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0]}];
-    } else {
-        self.searchBar.searchTextField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Cerca indirizzo o luogo..." attributes:@{NSForegroundColorAttributeName: [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0]}];
-    }
-    
     // Nascondi TUTTI i pulsanti mappa
     self.modalitaButton.hidden = YES;
     self.mapButton.hidden = YES;
@@ -710,19 +626,11 @@
 
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
     if (searchText.length >= 1) {
-        if ([SettingsStore shared].transportMode == TransportModeBus) {
-            // Bus mode: search bus lines
-            NSString *escaped = [searchText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-            escaped = [escaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-            NSString *js = [NSString stringWithFormat:@"nativeSearchBusLine('%@')", escaped];
-            [self.webView evaluateJavaScript:js completionHandler:nil];
-        } else {
-            // Car mode: call nativeSearchOSM via evaluateJavaScript — it posts results back via WKScriptMessageHandler
-            NSString *escaped = [searchText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-            escaped = [escaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-            NSString *js = [NSString stringWithFormat:@"nativeSearchOSM('%@')", escaped];
-            [self.webView evaluateJavaScript:js completionHandler:nil];
-        }
+        // Call nativeSearchOSM via evaluateJavaScript — it posts results back via WKScriptMessageHandler
+        NSString *escaped = [searchText stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+        escaped = [escaped stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+        NSString *js = [NSString stringWithFormat:@"nativeSearchOSM('%@')", escaped];
+        [self.webView evaluateJavaScript:js completionHandler:nil];
     } else {
         // Mostra destinazioni recenti
         self.searchResults = [[[SettingsStore shared] recentDestinations] mutableCopy];
@@ -752,25 +660,6 @@
     return cell;
 }
 
-// Swipe to delete — solo per destinazioni recenti (quando searchText è vuoto)
-- (BOOL)tableView:(UITableView *)tableView canEditRowAtIndexPath:(NSIndexPath *)indexPath {
-    // Solo se la search bar è vuota → mostriamo i recenti
-    return (self.searchBar.text.length == 0);
-}
-
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (editingStyle == UITableViewCellEditingStyleDelete) {
-        NSDictionary *item = self.searchResults[indexPath.row];
-        // Rimuovi dai recenti
-        [[SettingsStore shared] removeRecentDestination:item];
-        // Rimuovi dalla lista
-        [self.searchResults removeObjectAtIndex:indexPath.row];
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-        // Nascondi tabella se vuota
-        self.searchResultsTable.hidden = (self.searchResults.count == 0);
-    }
-}
-
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     NSDictionary *result = self.searchResults[indexPath.row];
     double lat = [result[@"lat"] doubleValue];
@@ -786,53 +675,26 @@
     
     dispatch_async(dispatch_get_main_queue(), ^{
         [self closeSearch];
-        
-        if ([SettingsStore shared].transportMode == TransportModeBus) {
-            // Bus mode: select bus line
-            NSString *lineNum = result[@"lineNumber"] ?: name;
-            NSInteger direction = [result[@"direction"] integerValue];
-            NSString *js = [NSString stringWithFormat:@"selectBusLine('%@', %ld)", lineNum, (long)direction];
-            [self.webView evaluateJavaScript:js completionHandler:^(id res, NSError *err) {
-                if (err) {
-                    [self appLog:@"❌ selectBusLine error: %@", err.localizedDescription];
-                } else {
-                    [self appLog:@"✅ selectBusLine: linea %@ dir %ld", lineNum, (long)direction];
-                }
-                // Bus route attivo — blocca centerOnUser auto
-                self->_hasBusRoute = YES;
-                // Store destination — VAI mostra quando JS chiama routeReady
-                self->_pendingDestDict = @{@"lat": @(lat), @"lon": @(lon), @"name": name,
-                                           @"lineNumber": lineNum, @"direction": @(direction),
-                                           @"isBus": @YES,
-                                           @"displayName": result[@"displayName"] ?: @"",
-                                           @"displaySubtitle": result[@"displaySubtitle"] ?: @""};
-                [self appLog:@"   _pendingDestDict (bus) salvato: %@", self->_pendingDestDict];
-            }];
-        } else {
-            // Car mode: calculate OSRM route
-            [self setRoutingProfileInJS];
-            NSString *js = [NSString stringWithFormat:@"calculateRoute(%f, %f, %f, %f, '%@')",
-                            _lastLocation ? _lastLocation.coordinate.latitude : 44.49,
-                            _lastLocation ? _lastLocation.coordinate.longitude : 11.34,
-                            lat, lon,
-                            [name stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
-            [self appLog:@"🧑‍💻 evaluateJS: calculateRoute(%f, %f, %f, %f, '%@')",
-             _lastLocation ? _lastLocation.coordinate.latitude : 44.49,
-             _lastLocation ? _lastLocation.coordinate.longitude : 11.34,
-             lat, lon, name];
-            [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
-                if (error) {
-                    [self appLog:@"❌ calculateRoute error: %@ (procedo comunque)", error.localizedDescription];
-                } else {
-                    [self appLog:@"✅ calculateRoute completata (JS sta disegnando percorso)"];
-                }
-                // Store destination — VAI mostra quando JS chiama routeReady
-                self->_pendingDestDict = @{@"lat": @(lat), @"lon": @(lon), @"name": name,
-                                           @"displayName": result[@"displayName"] ?: name,
-                                           @"displaySubtitle": result[@"displaySubtitle"] ?: @""};
-                [self appLog:@"   _pendingDestDict salvato: %@", self->_pendingDestDict];
-            }];
-        }
+        // Call calculateRoute JS to get route to this destination
+        NSString *js = [NSString stringWithFormat:@"calculateRoute(%f, %f, %f, %f, '%@')",
+                        _lastLocation ? _lastLocation.coordinate.latitude : 44.49,
+                        _lastLocation ? _lastLocation.coordinate.longitude : 11.34,
+                        lat, lon,
+                        [name stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]];
+        [self appLog:@"🧑‍💻 evaluateJS: calculateRoute(%f, %f, %f, %f, '%@')",
+         _lastLocation ? _lastLocation.coordinate.latitude : 44.49,
+         _lastLocation ? _lastLocation.coordinate.longitude : 11.34,
+         lat, lon, name];
+        [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+            if (error) {
+                [self appLog:@"❌ calculateRoute error: %@ (procedo comunque)", error.localizedDescription];
+            } else {
+                [self appLog:@"✅ calculateRoute completata (JS sta disegnando percorso)"];
+            }
+            // Store destination — VAI mostra quando JS chiama routeReady
+            self->_pendingDestDict = @{@"lat": @(lat), @"lon": @(lon), @"name": name};
+            [self appLog:@"   _pendingDestDict salvato: %@", self->_pendingDestDict];
+        }];
     });
 }
 
@@ -937,8 +799,11 @@
             self.searchButton.hidden = NO;
             self.settingsButton.hidden = NO;
             self.trackingButton.hidden = NO;
-            self.compassButton.hidden = YES;
+            self.compassButton.hidden = NO;
             self.logButton.hidden = NO;
+            self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 20, 100, 40);
+            self.trackingButton.frame = CGRectMake(w - 112, h - 120, 100, 40);
+            self.settingsButton.frame = CGRectMake(w - 112, h - 60, 100, 40);
         }
     } else {
         // Bus hidden
@@ -947,57 +812,20 @@
         self.searchButton.hidden = NO;
         self.settingsButton.hidden = NO;
         self.trackingButton.hidden = NO;
-        self.compassButton.hidden = YES;
+        self.compassButton.hidden = NO;
         self.logButton.hidden = NO;
+        self.modalitaButton.frame = CGRectMake(w - 112, 54, 100, 40);
+        self.searchButton.frame = CGRectMake(w - 112, h * 0.35 + 10, 100, 40);
+        self.trackingButton.frame = CGRectMake(w - 112, h - 120, 100, 40);
+        self.settingsButton.frame = CGRectMake(w - 112, h - 60, 100, 40);
     }
-    // Ogni volta che la visibilità cambia, ripristina posizioni salvate
-    [self loadSavedLayout];
 }
 
-#pragma mark - Camera Slider (real-time push to JS)
-
-- (void)pushCameraSettingsToJS {
-    // Camera settings handled by ObjC applyCameraSettings — no longer pushes to JS
-}
-
-- (void)showSliderValue:(NSString *)text {
-    if (!self.floatingSliderLabel) {
-        UILabel *lbl = [[UILabel alloc] init];
-        lbl.font = [UIFont boldSystemFontOfSize:32];
-        lbl.textColor = [UIColor whiteColor];
-        lbl.textAlignment = NSTextAlignmentCenter;
-        lbl.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
-        lbl.layer.cornerRadius = 16;
-        lbl.layer.masksToBounds = YES;
-        lbl.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.view addSubview:lbl];
-        [NSLayoutConstraint activateConstraints:@[
-            [lbl.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-            [lbl.bottomAnchor constraintEqualToAnchor:self.view.centerYAnchor constant:60],
-            [lbl.widthAnchor constraintGreaterThanOrEqualToConstant:120],
-            [lbl.heightAnchor constraintEqualToConstant:60]
-        ]];
-        self.floatingSliderLabel = lbl;
-    }
-    self.floatingSliderLabel.text = text;
-    self.floatingSliderLabel.alpha = 0;
-    self.floatingSliderLabel.hidden = NO;
-    [UIView animateWithDuration:0.15 animations:^{
-        self.floatingSliderLabel.alpha = 1.0;
-    }];
-}
-
-- (void)hideSliderValue {
-    if (!self.floatingSliderLabel) return;
-    [UIView animateWithDuration:0.2 animations:^{
-        self.floatingSliderLabel.alpha = 0;
-    } completion:^(BOOL finished) {
-        self.floatingSliderLabel.hidden = YES;
-    }];
-}
+#pragma mark - Camera
 
 - (void)applyCameraSettings {
     if (!_lastLocation) {
+        // Usa coordinate default (Bologna) se GPS non ancora disponibile
         CLLocationCoordinate2D target = CLLocationCoordinate2DMake(44.49, 11.34);
         double zoom = MAX(10.0, MIN(19.0, 18.0 - log2(MAX(self.cameraAltitude, 10.0) / 100.0)));
         NSString *js = [NSString stringWithFormat:
@@ -1090,8 +918,6 @@
     double fromLon = _lastLocation ? _lastLocation.coordinate.longitude : 11.34;
     
     NSString *escapedName = [destName stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-    // Imposta profilo routing
-    [self setRoutingProfileInJS];
     NSString *js = [NSString stringWithFormat:
         @"calculateRoute(%f, %f, %f, %f, '%@')",
         fromLat, fromLon, destLat, destLon, escapedName];
@@ -1129,124 +955,6 @@
     if (self->_goButton) return;
     CGFloat w = self.view.bounds.size.width;
     CGFloat h = self.view.bounds.size.height;
-    
-    // Bus mode: mostra ANDATA (verde) + RITORNO (rosso)
-    if ([SettingsStore shared].transportMode == TransportModeBus && self->_pendingDestDict) {
-        // Richiedi info percorso a JS
-        [self.webView evaluateJavaScript:@"getBusRouteInfo()" completionHandler:^(id infoStr, NSError *e) {
-            NSString *andataRoute = @"";
-            NSString *ritornoRoute = @"";
-            if ([infoStr isKindOfClass:[NSString class]]) {
-                NSData *d = [(NSString *)infoStr dataUsingEncoding:NSUTF8StringEncoding];
-                NSDictionary *info = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-                if ([info isKindOfClass:[NSDictionary class]]) {
-                    andataRoute = info[@"andata"] ?: @"";
-                    ritornoRoute = info[@"ritorno"] ?: @"";
-                }
-            }
-            
-            dispatch_async(dispatch_get_main_queue(), ^{
-                CGFloat btnW = 180;
-                CGFloat btnH = 55;
-                CGFloat btnY = h - 160;
-                CGFloat gap = 12;
-                CGFloat totalW = btnW * 2 + gap;
-                CGFloat startX = (w - totalW) / 2;
-                
-                // --- ANDATA (verde) ---
-                UIButton *go = [UIButton buttonWithType:UIButtonTypeCustom];
-                go.frame = CGRectMake(startX, btnY, btnW, btnH);
-                go.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
-                go.backgroundColor = [UIColor colorWithRed:0.13 green:0.70 blue:0.25 alpha:0.95];
-                go.layer.cornerRadius = 14;
-                go.tintColor = [UIColor whiteColor];
-                go.clipsToBounds = YES;
-                [go addTarget:self action:@selector(goButtonTapped) forControlEvents:UIControlEventTouchUpInside];
-                
-                // Label "ANDATA" in alto
-                UILabel *andataLabel = [[UILabel alloc] init];
-                andataLabel.frame = CGRectMake(4, 6, btnW - 8, 22);
-                andataLabel.text = @"ANDATA";
-                andataLabel.font = [UIFont boldSystemFontOfSize:18];
-                andataLabel.textColor = [UIColor whiteColor];
-                andataLabel.textAlignment = NSTextAlignmentCenter;
-                [go addSubview:andataLabel];
-                
-                // Label percorso in basso (più piccolo)
-                UILabel *routeLabel = [[UILabel alloc] init];
-                routeLabel.frame = CGRectMake(4, 28, btnW - 8, 20);
-                routeLabel.text = andataRoute;
-                routeLabel.font = [UIFont systemFontOfSize:10];
-                routeLabel.textColor = [UIColor colorWithWhite:0.90 alpha:1.0];
-                routeLabel.textAlignment = NSTextAlignmentCenter;
-                routeLabel.numberOfLines = 2;
-                routeLabel.adjustsFontSizeToFitWidth = YES;
-                routeLabel.minimumScaleFactor = 0.6;
-                [go addSubview:routeLabel];
-                
-                [self.view addSubview:go];
-                self->_goButton = go;
-                
-                // --- RITORNO (rosso) ---
-                [self.webView evaluateJavaScript:@"typeof _busNavData !== 'undefined' && _busNavData.returnStops !== null && _busNavData.returnStops.length >= 2 ? 'yes' : 'no'" completionHandler:^(id r, NSError *e2) {
-                    BOOL hasRT = [r isKindOfClass:[NSString class]] && [r isEqualToString:@"yes"];
-                    if (hasRT) {
-                        UIButton *ret = [UIButton buttonWithType:UIButtonTypeCustom];
-                        ret.frame = CGRectMake(startX + btnW + gap, btnY, btnW, btnH);
-                        ret.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
-                        ret.backgroundColor = [UIColor colorWithRed:0.80 green:0.15 blue:0.15 alpha:0.95];
-                        ret.layer.cornerRadius = 14;
-                        ret.clipsToBounds = YES;
-                        [ret addTarget:self action:@selector(ritornoButtonTapped) forControlEvents:UIControlEventTouchUpInside];
-                        
-                        // Label "RITORNO" in alto
-                        UILabel *ritLabel = [[UILabel alloc] init];
-                        ritLabel.frame = CGRectMake(4, 6, btnW - 8, 22);
-                        ritLabel.text = @"RITORNO";
-                        ritLabel.font = [UIFont boldSystemFontOfSize:18];
-                        ritLabel.textColor = [UIColor whiteColor];
-                        ritLabel.textAlignment = NSTextAlignmentCenter;
-                        [ret addSubview:ritLabel];
-                        
-                        // Label percorso in basso
-                        UILabel *ritRoute = [[UILabel alloc] init];
-                        ritRoute.frame = CGRectMake(4, 28, btnW - 8, 20);
-                        ritRoute.text = ritornoRoute;
-                        ritRoute.font = [UIFont systemFontOfSize:10];
-                        ritRoute.textColor = [UIColor colorWithWhite:0.90 alpha:1.0];
-                        ritRoute.textAlignment = NSTextAlignmentCenter;
-                        ritRoute.numberOfLines = 2;
-                        ritRoute.adjustsFontSizeToFitWidth = YES;
-                        ritRoute.minimumScaleFactor = 0.6;
-                        [ret addSubview:ritRoute];
-                        
-                        [self.view addSubview:ret];
-                        self->_retButton = ret;
-                    }
-                    // Pulsante simulazione (sotto ANDATA/RITORNO)
-                    CGFloat btnW = 180;
-                    CGFloat btnH = 55;
-                    CGFloat startX = (w - (btnW * 2 + 12)) / 2;
-                    UIButton *sim = [UIButton buttonWithType:UIButtonTypeSystem];
-                    sim.frame = CGRectMake(startX + btnW/2 - 70, btnY + btnH + 10, 140, 36);
-                    sim.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
-                    sim.backgroundColor = [UIColor colorWithRed:0.2 green:0.6 blue:0.2 alpha:0.85];
-                    sim.layer.cornerRadius = 18;
-                    sim.tintColor = [UIColor whiteColor];
-                    sim.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-                    [sim setTitle:@"▶ Simulazione" forState:UIControlStateNormal];
-                    [sim addTarget:self action:@selector(simulationButtonTapped) forControlEvents:UIControlEventTouchUpInside];
-                    [self.view addSubview:sim];
-                    self->_simButton = sim;
-                    
-                    [self appLog:@"✅ Mostrati ANDATA (verde)%@ + Simulazione", hasRT ? @" + RITORNO (rosso)" : @""];
-                }];
-            });
-        }];
-        return;
-    }
-    
-    // Auto mode: pulsante VAI standard
     UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem];
     go.frame = CGRectMake(w/2 - 70, h - 150, 140, 50);
     go.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
@@ -1259,7 +967,7 @@
     [self.view addSubview:go];
     self->_goButton = go;
     
-    // Pulsante Simulazione
+    // Pulsante Simulazione — più grande per non sbagliare
     UIButton *sim = [UIButton buttonWithType:UIButtonTypeSystem];
     sim.frame = CGRectMake(w/2 - 70, h - 90, 140, 42);
     sim.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
@@ -1278,8 +986,6 @@
     self->_goButton = nil;
     [self->_simButton removeFromSuperview];
     self->_simButton = nil;
-    [self->_retButton removeFromSuperview];
-    self->_retButton = nil;
     
     // Ferma simulazione se attiva
     if (_isSimulating) {
@@ -1297,39 +1003,11 @@
         [self appLog:@"   pendingDestDict ok: %@", self->_pendingDestDict];
         // Salva nei recenti
         [[SettingsStore shared] addRecentDestination:self->_pendingDestDict];
-        
-        if ([self->_pendingDestDict[@"isBus"] boolValue]) {
-            // Bus mode: start bus navigation
-            [self.webView evaluateJavaScript:@"startBusNavigation();" completionHandler:^(id res, NSError *err) {
-                if (err) [self appLog:@"❌ startBusNavigation JS error: %@", err.localizedDescription];
-                else [self appLog:@"✅ startBusNavigation JS ok"];
-            }];
-        } else {
-            // Car mode: standard navigation
-            [self startNavigationTo:self->_pendingDestDict];
-        }
-        
+        [self startNavigationTo:self->_pendingDestDict];
         self->_pendingDestDict = nil;
         [self appLog:@"   pendingDestDict azzerato"];
     } else {
         [self appLog:@"❌ VAI: _pendingDestDict è NIL"];
-    }
-}
-
-- (void)ritornoButtonTapped {
-    [self appLog:@"🔴 RITORNO premuto"];
-    [self hideGoButton];
-    if (self->_pendingDestDict) {
-        [self appLog:@"   pendingDestDict ok: %@", self->_pendingDestDict];
-        [[SettingsStore shared] addRecentDestination:self->_pendingDestDict];
-        // Chiama startBusNavigation('ritorno') per navigare il percorso di ritorno
-        [self.webView evaluateJavaScript:@"startBusNavigation('ritorno');" completionHandler:^(id res, NSError *err) {
-            if (err) [self appLog:@"❌ startBusNavigation(ritorno) JS error: %@", err.localizedDescription];
-            else [self appLog:@"✅ startBusNavigation(ritorno) JS ok"];
-        }];
-        self->_pendingDestDict = nil;
-    } else {
-        [self appLog:@"❌ RITORNO: _pendingDestDict è NIL"];
     }
 }
 
@@ -1347,40 +1025,6 @@
     [[SettingsStore shared] addRecentDestination:dest];
     self->_pendingDestDict = nil;
     
-    BOOL isBus = [dest[@"isBus"] boolValue];
-    
-    if (isBus) {
-        // === SIMULAZIONE BUS ===
-        _isSimulating = YES;
-        _simCoords = nil;
-        _simIndex = 0;
-        _simStepPerTick = 0.1389; // ~30 km/h
-        // FERMA navTimer (potrebbe essere ancora attivo da navigazione precedente)
-        [_navTimer invalidate]; _navTimer = nil;
-        [self stopSmoothTimer];
-        // Ottieni coordinate OSRM stops-only e setta navCoords in JS
-        // Camera settings già salvate in ObjC (applyCameraSettings usa self.cameraAltitude, etc.)
-        [self appLog:@"🚌 Simulazione bus: setupBusSimulation()..."];
-        [self.webView evaluateJavaScript:@"setupBusSimulation();" completionHandler:^(id result, NSError *err) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (err || ![result isKindOfClass:[NSString class]]) {
-                    [self appLog:@"⚠️ setupBusSimulation error, riprovo in 500ms..."];
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                        [self.webView evaluateJavaScript:@"setupBusSimulation();" completionHandler:^(id r2, NSError *e2) {
-                            dispatch_async(dispatch_get_main_queue(), ^{
-                                [self processBusSimCoords:r2 retry:0];
-                            });
-                        }];
-                    });
-                    return;
-                }
-                [self processBusSimCoords:result retry:0];
-            });
-        }];
-        return;
-    }
-    
-    // === SIMULAZIONE AUTO (esistente) ===
     // _simCoords è già popolato da simCoords message handler (quando OSRM ha risposto)
     if (!_simCoords || _simCoords.count < 2) {
         [self appLog:@"⚠️ _simCoords vuoto — calcolo route OSRM..."];
@@ -1390,7 +1034,6 @@
         double toLon = [dest[@"lon"] doubleValue];
         NSString *name = dest[@"name"] ?: @"";
         NSString *escaped = [name stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-        [self setRoutingProfileInJS];
         NSString *calcJs = [NSString stringWithFormat:
             @"calculateRoute(%f, %f, %f, %f, '%@')",
             fromLat, fromLon, toLat, toLon, escaped];
@@ -1398,9 +1041,6 @@
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self appLog:@"⚠️ OSRM completion — _simCoords count=%lu", (unsigned long)(_simCoords ? [_simCoords count] : 0)];
                 if (_simCoords && _simCoords.count >= 2) {
-                    _isSimulating = YES;
-                    [_navTimer invalidate]; _navTimer = nil;
-                    [self stopSmoothTimer];
                     [self startNavigationTo:dest];
                     [self fireSimulation];
                 } else {
@@ -1412,110 +1052,8 @@
     }
     
     [self appLog:@"✅ _simCoords già pronto (%lu coordinate) — avvio subito", (unsigned long)[_simCoords count]];
-    _isSimulating = YES;
-    [_navTimer invalidate]; _navTimer = nil;
-    [self stopSmoothTimer];
     [self startNavigationTo:dest];
     [self fireSimulation];
-}
-
-/// Processa il risultato di setupBusSimulation() — converte [[lng,lat],...] in {lat,lon}, avvia simulazione
-- (void)processBusSimCoords:(id)result retry:(int)retry {
-    if (retry > 10) {
-        [self appLog:@"❌ Timeout attesa _busOsrmCoords per simulazione bus"];
-        _isSimulating = NO;
-        return;
-    }
-    
-    if (![result isKindOfClass:[NSString class]]) {
-        [self appLog:@"⏳ setupBusSimulation: result non stringa, riprovo (%d)...", retry];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self.webView evaluateJavaScript:@"setupBusSimulation();" completionHandler:^(id r2, NSError *e2) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self processBusSimCoords:r2 retry:retry + 1];
-                });
-            }];
-        });
-        return;
-    }
-    
-    NSString *jsonStr = (NSString *)result;
-    NSData *jsData = [jsonStr dataUsingEncoding:NSUTF8StringEncoding];
-    NSArray *parsed = [NSJSONSerialization JSONObjectWithData:jsData options:0 error:nil];
-    if (![parsed isKindOfClass:[NSArray class]] || parsed.count < 2) {
-        [self appLog:@"⏳ _busOsrmCoords non ancora pronto (%d), riprovo...", retry];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self.webView evaluateJavaScript:@"setupBusSimulation();" completionHandler:^(id r2, NSError *e2) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [self processBusSimCoords:r2 retry:retry + 1];
-                });
-            }];
-        });
-        return;
-    }
-    
-    // _busOsrmCoords è [[lng, lat], [lng, lat], ...] — converti in {lat, lon}
-    NSMutableArray *dicts = [NSMutableArray arrayWithCapacity:parsed.count];
-    for (NSArray *pt in parsed) {
-        if ([pt isKindOfClass:[NSArray class]] && pt.count >= 2) {
-            [dicts addObject:@{@"lat": pt[1], @"lon": pt[0]}];
-        }
-    }
-    if (dicts.count < 2) {
-        [self appLog:@"❌ _busOsrmCoords insufficienti dopo conversione (%lu)", (unsigned long)[dicts count]];
-        _isSimulating = NO;
-        return;
-    }
-    
-    [self appLog:@"✅ _busOsrmCoords stops-only pronte (%lu coord) — avvio simulazione!", (unsigned long)[dicts count]];
-    _simCoords = [dicts copy];
-    _simIndex = 0;
-    
-    // Posiziona SUBITO la freccia alla prima fermata (senza passare per userPos)
-    NSDictionary *first = _simCoords[0];
-    double firstLat = [first[@"lat"] doubleValue];
-    double firstLon = [first[@"lon"] doubleValue];
-    // Calcola bearing iniziale dal primo al secondo punto
-    double initBearing = 0;
-    if (_simCoords.count >= 2) {
-        NSDictionary *second = _simCoords[1];
-        double sLat = [second[@"lat"] doubleValue];
-        double sLon = [second[@"lon"] doubleValue];
-        double dLon = (sLon - firstLon) * M_PI / 180.0;
-        double y = sin(dLon) * cos(sLat * M_PI / 180.0);
-        double x = cos(firstLat * M_PI / 180.0) * sin(sLat * M_PI / 180.0) - sin(firstLat * M_PI / 180.0) * cos(sLat * M_PI / 180.0) * cos(dLon);
-        initBearing = atan2(y, x) * 180.0 / M_PI;
-        if (initBearing < 0) initBearing += 360;
-    }
-    
-    // Setta _lastLocation alla prima fermata
-    [self setSimulatedLocation:firstLat lon:firstLon course:initBearing];
-    [self appLog:@"✅ Posizionato prima fermata (%.1f, %.1f), avvio simulazione", firstLat, firstLon];
-    [self fireSimulation];
-}
-- (void)waitForSimCoords:(double)firstLat firstLon:(double)firstLon retry:(int)retry {
-    if (retry > 50) {
-        [self appLog:@"❌ Timeout attesa _simCoords per simulazione bus"];
-        _isSimulating = NO;
-        return;
-    }
-    
-    if (_simCoords && _simCoords.count >= 2) {
-        // _simCoords è arrivato da JS (via simCoords handler)
-        // Sostituisci la prima posizione con la prima fermata del percorso
-        NSMutableArray *fixed = [_simCoords mutableCopy];
-        fixed[0] = @{@"lat": @(firstLat), @"lon": @(firstLon)};
-        _simCoords = [fixed copy];
-        _simIndex = 0;
-        [self appLog:@"✅ _simCoords pronto (%lu coord) — prima posizione → prima fermata (%.6f, %.6f) — avvio fireSimulation",
-         (unsigned long)[_simCoords count], firstLat, firstLon];
-        [self fireSimulation];
-        return;
-    }
-    
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self waitForSimCoords:firstLat firstLon:firstLon retry:retry + 1];
-    });
 }
 
 - (void)fireSimulation {
@@ -1550,18 +1088,18 @@
     _currentSpeed = 4.17;
     _currentCourse = course;
     
-    // Camera segue OGNI 12 TICK (~200ms = 5fps) — come v3.193, niente vibrazione mappa
+    // Camera segue OGNI 12 TICK (~200ms = 5fps) — niente vibrazione mappa
     static int _camCounter = 0;
     _camCounter++;
     if (_isSimulating && _camCounter >= 12) {
         _camCounter = 0;
         [self applyCameraSettings];
     }
-    // updatePosition sempre a 60fps (freccia fluida, come v3.193)
+    // updatePosition sempre a 60fps (freccia fluida)
     [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f, %f)", lat, lon] completionHandler:^(id r, NSError *e) {
         if (e) [self appLog:@"❌ updatePosition JS ERR: %@", e.localizedDescription];
     }];
-    // updateArrowRotation sempre a 60fps (freccia segue subito la rotta, come v3.193)
+    // updateArrowRotation sempre a 60fps (freccia segue subito la rotta)
     [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f)", course, _cameraHeading, [SettingsStore shared].arrowRotation] completionHandler:^(id r, NSError *e) {
         if (e) [self appLog:@"❌ arrowRot JS ERR: %@", e.localizedDescription];
     }];
@@ -1574,7 +1112,6 @@
             _isSimulating = NO;
             [_simTimer invalidate]; _simTimer = nil;
             _simCoords = nil;
-            [self.webView evaluateJavaScript:@"stopNavEngine();" completionHandler:nil];
         }
         return;
     }
@@ -1656,46 +1193,21 @@
     self.userTracking = YES;
     self.userTrackingWithHeading = YES;
     [self updateTrackingButton];
-    // navBar nascosta — info nella pill via in basso
-    self.navBar.hidden = YES;
-    self.stopNavButton.hidden = NO;
-    
-    // Mostra pill via con fade-in
-    if (self.roadNameLabel) {
-        self.roadNameLabel.hidden = NO;
-        self.roadNameLabel.alpha = 0;
-        self.roadETAPill.hidden = NO;
-        self.roadETAPill.alpha = 0;
-        self.roadTimePill.hidden = NO;
-        self.roadTimePill.alpha = 0;
-        self.roadDistPill.hidden = NO;
-        self.roadDistPill.alpha = 0;
-        [UIView animateWithDuration:0.3 animations:^{
-            self.roadNameLabel.alpha = 1;
-            self.roadETAPill.alpha = 1;
-            self.roadTimePill.alpha = 1;
-            self.roadDistPill.alpha = 1;
-        }];
-    }
+    self.navBar.hidden = NO;
     
     // Smooth position timer 20 fps per navigazione fluida
     _isInterpolating = NO;
     _interpStartTime = 0;
     [self startSmoothTimer];
     
-    // Avvicina camera SUBITO con le impostazioni salvate dall'utente
+    // Avvicina camera SUBITO
     if (_lastLocation) {
         [self appLog:@"   GPS: %f,%f course=%f", _lastLocation.coordinate.latitude, _lastLocation.coordinate.longitude, _lastLocation.course];
-        // Converte altitude in zoom: più bassa = zoom più alto
-        double alt = MAX(self.cameraAltitude, 10.0);
-        double zoom = MAX(10.0, MIN(19.0, 18.0 - log2(alt / 100.0)));
-        double pitch = self.cameraPitch > 0 ? self.cameraPitch : 60.0;
-        double bearing = _lastLocation.course >= 0 ? _lastLocation.course : _cameraHeading;
         NSString *flyJs = [NSString stringWithFormat:
-            @"animateCamera(%f, %f, %f, %f, %f);",
+            @"animateCamera(%f, %f, 16.0, %f, 60.0);",
             _lastLocation.coordinate.latitude,
             _lastLocation.coordinate.longitude,
-            zoom, bearing, pitch];
+            _lastLocation.course >= 0 ? _lastLocation.course : 0];
         [self.webView evaluateJavaScript:flyJs completionHandler:nil];
     } else {
         [self appLog:@"   ⚠️ GPS NON disponibile (no animateCamera)"];
@@ -1718,44 +1230,15 @@
 
 - (void)endNavigation {
     self.isNavigating = NO;
-    _isSimulating = NO;
     [_navTimer invalidate]; _navTimer = nil;
     
-    // Clear JS route, destination, bus route, e ferma rAF engine
-    [self.webView evaluateJavaScript:@"endNavigation(); clearRoute(); clearDestination(); clearBusRouteLayers(); stopNavEngine();" completionHandler:^(id res, NSError *err) {
+    // Clear JS route and destination
+    [self.webView evaluateJavaScript:@"endNavigation(); clearRoute(); clearDestination();" completionHandler:^(id res, NSError *err) {
         if (err) [self appLog:@"endNavigation JS error: %@", err.localizedDescription];
     }];
     
     self.navBar.hidden = YES;
-    self.stopNavButton.hidden = YES;
-    // Nascondi pill via
-    if (self.roadNameLabel && !self.roadNameLabel.hidden) {
-        [UIView animateWithDuration:0.25 animations:^{
-            self.roadNameLabel.alpha = 0;
-            self.roadETAPill.alpha = 0;
-            self.roadTimePill.alpha = 0;
-            self.roadDistPill.alpha = 0;
-        } completion:^(BOOL fin) {
-            self.roadNameLabel.hidden = YES;
-            self.roadETAPill.hidden = YES;
-            self.roadTimePill.hidden = YES;
-            self.roadDistPill.hidden = YES;
-            self.roadStreetLabel.text = @"";
-            self.roadETALabel.text = @"";
-            self.roadTimeLabel.text = @"";
-            self.roadDistLabel.text = @"";
-        }];
-    } else {
-        self.roadETAPill.hidden = YES;
-        self.roadTimePill.hidden = YES;
-        self.roadDistPill.hidden = YES;
-        self.roadETALabel.text = @"";
-        self.roadTimeLabel.text = @"";
-        self.roadDistLabel.text = @"";
-    }
-    
     [self hideGoButton];
-    _hasBusRoute = NO;
     self.userTracking = NO;
     self.userTrackingWithHeading = NO;
     [self updateTrackingButton];
@@ -1766,7 +1249,6 @@
 /// Timer 2-secondi — ottiene stato navigazione da JS e aggiorna UI
 - (void)navTick {
     if (!self.isNavigating || !_lastLocation) return;
-    if (_isSimulating) return; // simulazione gestita dal rAF loop JS, non serve navTick
     
     [self.webView evaluateJavaScript:@"getNavState()" completionHandler:^(id result, NSError *error) {
         if (error || !result) return;
@@ -2021,16 +1503,15 @@
         _interpTo = snapped;
         _interpStartTime = [[NSDate date] timeIntervalSince1970];
         _isInterpolating = YES;
-        // smoothTick si occupa di inviare posizione via pushPosition
+        // smoothTick a 20 fps si occupa di updatePosition
     } else {
-        // Non in navigazione: aggiorna subito via pushPosition
-        [self pushPositionToJSWithLat:snapped.latitude lon:snapped.longitude course:_currentCourse];
+        // Non in navigazione: aggiorna subito
+        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f, %f)", snapped.latitude, snapped.longitude] completionHandler:nil];
     }
     
-    // Camera: in navigazione forzata sempre, altrimenti solo in movimento
-    // MAI auto-centrare quando un percorso bus è visualizzato (l'utente vuole vedere la panoramica)
-    if (self.userTracking && _lastLocation && !_hasBusRoute) {
-        if (self.isNavigating || (self.userTrackingWithHeading && _lastLocation.course >= 0 && _currentSpeed > 2.0)) {
+    // Camera solo se in movimento (>7 km/h)
+    if (self.userTracking && _lastLocation) {
+        if (self.userTrackingWithHeading && _lastLocation.course >= 0 && _currentSpeed > 2.0) {
             [self applyCameraSettings];
         } else if (!self.userTrackingWithHeading) {
             NSString *js = [NSString stringWithFormat:@"centerOnUser()"];
@@ -2060,20 +1541,19 @@
     // Interpolazione GPS reale
     if (_isInterpolating) {
         NSTimeInterval elapsed = [[NSDate date] timeIntervalSince1970] - _interpStartTime;
-        double t = MIN(elapsed / 0.5, 1.0);
-        t = t * t * (3.0 - 2.0 * t);
+        double t = MIN(elapsed / 0.5, 1.0); // interpola in 0.5 secondi
+        t = t * t * (3.0 - 2.0 * t); // smoothstep
         
         double lat = _interpFrom.latitude + (_interpTo.latitude - _interpFrom.latitude) * t;
         double lon = _interpFrom.longitude + (_interpTo.longitude - _interpFrom.longitude) * t;
+        
+        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f, %f)", lat, lon] completionHandler:nil];
         
         double course = _currentCourse;
         if (course < 0 && t > 0.01) {
             course = atan2(_interpTo.latitude - _interpFrom.latitude, _interpTo.longitude - _interpFrom.longitude) * 180.0 / M_PI;
             if (course < 0) course += 360;
         }
-        
-        // updatePosition + updateArrowRotation a 60fps (come v3.193)
-        [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updatePosition(%f, %f)", lat, lon] completionHandler:nil];
         [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f)", course, _cameraHeading, [SettingsStore shared].arrowRotation] completionHandler:nil];
         
         if (t >= 1.0) {
@@ -2081,38 +1561,26 @@
         }
     }
     
-    // Camera segue SEMPRE in navigazione (a 60fps, come v3.193)
+    // Camera segue SEMPRE in navigazione (anche tra GPS)
     [self applyCameraSettings];
-}
-
-#pragma mark - NavEngine Push (5fps → JS rAF)
-
-- (void)pushPositionToJS {
-    // Usa _hasSimPos durante simulazione, altrimenti _lastLocation
-    double lat, lon, course;
-    if (_hasSimPos) {
-        lat = _simLat;
-        lon = _simLon;
-        course = _simCourse;
-    } else if (_lastLocation) {
-        lat = _lastLocation.coordinate.latitude;
-        lon = _lastLocation.coordinate.longitude;
-        course = _lastLocation.course >= 0 ? _lastLocation.course : _currentCourse;
-    } else {
-        return;
-    }
-    [self pushPositionToJSWithLat:lat lon:lon course:course];
-}
-
-- (void)pushPositionToJSWithLat:(double)lat lon:(double)lon course:(double)course {
-    NSString *js = [NSString stringWithFormat:@"updatePosition(%f, %f)", lat, lon];
-    [self.webView evaluateJavaScript:js completionHandler:nil];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateHeading:(CLHeading *)newHeading {
     if (newHeading.headingAccuracy < 0) return;
     _currentHeading = newHeading.trueHeading;
-    // Rotazione freccia + camera gestita dal JS rAF engine
+    // Apply arrow rotation via JS
+    CGFloat direction = _currentCourse;
+    if (direction < 0) direction = _currentHeading;
+    CGFloat arrowAngle = direction - _cameraHeading;
+    arrowAngle += [SettingsStore shared].arrowRotation;
+    NSString *js = [NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f)",
+                    _currentHeading, _cameraHeading, [SettingsStore shared].arrowRotation];
+    [self.webView evaluateJavaScript:js completionHandler:nil];
+    [self applyArrowTransform];
+    
+    // Update compass via JS
+    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateCompass(%f)", newHeading.trueHeading] completionHandler:nil];
+    
     // Ruota bussola custom (native)
     [UIView animateWithDuration:0.25 animations:^{
         self.compassButton.transform = CGAffineTransformMakeRotation(-newHeading.trueHeading * M_PI / 180.0);
@@ -2195,8 +1663,8 @@
     BOOL dark = st.nightMode || st.darkTheme;
     self.view.backgroundColor = dark ? [UIColor blackColor] : [UIColor colorWithWhite:0.15 alpha:1.0];
     
-    // Bussola nativa MapLibre JS (bussola custom nascosta)
-    self.compassButton.hidden = YES;
+    // Bussola
+    self.compassButton.hidden = ![SettingsStore shared].showCompass;
     [self applyMenuOpacity];
     
     // Mostra edifici 3D (MapLibre — nascondi/mostra layer building)
@@ -2422,74 +1890,10 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             NSString *instruction = state[@"instruction"];
             if (instruction) self.instructionLabel.text = instruction;
-            NSString *streetName = state[@"streetName"];
-            if (streetName && streetName.length > 0) {
-                // Animazione nome via: scende dall'alto quando cambia (solo sul label, non sulla pill)
-                BOOL shouldAnimate = !self.roadNameLabel.hidden && ![self.roadStreetLabel.text isEqualToString:streetName];
-                self.roadNameLabel.hidden = NO;
-                self.roadStreetLabel.text = streetName;
-                if (shouldAnimate) {
-                    CATransition *slide = [CATransition animation];
-                    slide.duration = 0.35;
-                    slide.type = kCATransitionMoveIn;
-                    slide.subtype = kCATransitionFromTop;
-                    slide.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-                    [self.roadStreetLabel.layer addAnimation:slide forKey:@"streetChange"];
-                }
-            } else if (self.isNavigating) {
-                // Fallback: mostra instruction come nome via (utile per bus nav)
-                NSString *fallback = instruction ?: @"";
-                if (fallback.length > 0) {
-                    self.roadNameLabel.hidden = NO;
-                    self.roadStreetLabel.text = fallback;
-                }
-            }
-            // ETA: ora arrivo + "arrivo" sotto
-            id etaVal = state[@"eta"];
-            if (etaVal) {
-                self.etaSeconds = [etaVal doubleValue];
-                NSDate *arrival = [NSDate dateWithTimeIntervalSinceNow:self.etaSeconds];
-                NSDateFormatter *df = [[NSDateFormatter alloc] init];
-                df.dateFormat = @"HH:mm";
-                NSString *etaStr = [df stringFromDate:arrival];
-                NSMutableAttributedString *etaAttr = [[NSMutableAttributedString alloc] init];
-                [etaAttr appendAttributedString:[[NSAttributedString alloc] initWithString:etaStr attributes:@{
-                    NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]
-                }]];
-                [etaAttr appendAttributedString:[[NSAttributedString alloc] initWithString:@"\narrivo" attributes:@{
-                    NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]
-                }]];
-                self.roadETALabel.attributedText = etaAttr;
-            }
-            // Distanza rimanente + "distanza" sotto
             id distVal = state[@"distance"];
-            if (distVal) {
-                self.distanceRemaining = [distVal doubleValue];
-                NSString *distStr = self.distanceRemaining >= 1000
-                    ? [NSString stringWithFormat:@"%.1f km", self.distanceRemaining / 1000.0]
-                    : [NSString stringWithFormat:@"%.0f m", self.distanceRemaining];
-                NSMutableAttributedString *distAttr = [[NSMutableAttributedString alloc] init];
-                [distAttr appendAttributedString:[[NSAttributedString alloc] initWithString:distStr attributes:@{
-                    NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]
-                }]];
-                [distAttr appendAttributedString:[[NSAttributedString alloc] initWithString:@"\ndistanza" attributes:@{
-                    NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]
-                }]];
-                self.roadDistLabel.attributedText = distAttr;
-            }
-            // Tempo percorrenza + "tempo" sotto
-            NSInteger mins = (NSInteger)(self.etaSeconds / 60);
-            NSString *timeStr = mins >= 60
-                ? [NSString stringWithFormat:@"%ldh %ldm", (long)(mins / 60), (long)(mins % 60)]
-                : [NSString stringWithFormat:@"%ld min", (long)MAX(1, mins)];
-            NSMutableAttributedString *timeAttr = [[NSMutableAttributedString alloc] init];
-            [timeAttr appendAttributedString:[[NSAttributedString alloc] initWithString:timeStr attributes:@{
-                NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]
-            }]];
-            [timeAttr appendAttributedString:[[NSAttributedString alloc] initWithString:@"\ntempo" attributes:@{
-                NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]
-            }]];
-            self.roadTimeLabel.attributedText = timeAttr;
+            if (distVal) self.distanceRemaining = [distVal doubleValue];
+            id etaVal = state[@"eta"];
+            if (etaVal) self.etaSeconds = [etaVal doubleValue];
             id speedVal = state[@"speed"];
             // Only use JS speed as fallback if GPS hasn't provided one
             if (speedVal && _currentSpeed < 0.1) {
@@ -2540,88 +1944,15 @@
         if ([coords isKindOfClass:[NSArray class]] && coords.count >= 2) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self appLog:@"✅ simCoords: %lu coordinate salvate, stepPerTick=%.4f", (unsigned long)[coords count], 0.1389];
-                // Durante simulazione NON sovrascrivere _simCoords (già settato da pollBusOsrmCoords con stops-only)
-                if (!_isSimulating) {
                     _simCoords = coords;
                     _simIndex = 0;
                     _simStepPerTick = 0.1389;
-                }
             });
         }
     } else if ([message.name isEqualToString:@"routeReady"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self appLog:@"✅ Percorso pronto, mostro VAI"];
             [self showGoButton];
-            // Forza push posizione — usa sempre l'ultima nota, o default
-            double lat = _lastLocation ? _lastLocation.coordinate.latitude : 44.49;
-            double lon = _lastLocation ? _lastLocation.coordinate.longitude : 11.34;
-            double course = _lastLocation.course >= 0 ? _lastLocation.course : (_currentCourse >= 0 ? _currentCourse : 0);
-            [self pushPositionToJSWithLat:lat lon:lon course:course];
-            [self appLog:@"📌 Forzata push posizione (%.4f, %.4f)", lat, lon];
-            // Salva nei recenti
-            if (self->_pendingDestDict) {
-                [[SettingsStore shared] addRecentDestination:self->_pendingDestDict];
-                [self appLog:@"✅ Destinazione salvata nei recenti: %@", self->_pendingDestDict];
-            }
-        });
-    } else if ([message.name isEqualToString:@"navigationStart"]) {
-        // Bus navigation started — come auto mode: smoothTimer + navTimer per GPS reale
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self appLog:@"✅ Bus navigation started (GPS reale)"];
-            self.isNavigating = YES;
-            self.userTracking = YES;
-            self.userTrackingWithHeading = YES;
-            [self updateTrackingButton];
-            self.navBar.hidden = YES;
-            self.stopNavButton.hidden = NO;
-            // Forza push posizione corrente SUBITO (usa sempre l'ultima nota)
-            double lat = _lastLocation ? _lastLocation.coordinate.latitude : 44.49;
-            double lon = _lastLocation ? _lastLocation.coordinate.longitude : 11.34;
-            double course = _lastLocation.course >= 0 ? _lastLocation.course : (_currentCourse >= 0 ? _currentCourse : 0);
-            [self pushPositionToJSWithLat:lat lon:lon course:course];
-            _interpFrom = CLLocationCoordinate2DMake(lat, lon);
-            _interpTo = CLLocationCoordinate2DMake(lat, lon);
-            _interpStartTime = [[NSDate date] timeIntervalSince1970];
-            _isInterpolating = YES;
-            [self appLog:@"✅ navigationStart: push posizione (%.4f, %.4f) + interpolazione forzata", lat, lon];
-            [self startSmoothTimer];
-            _interpStartTime = 0;
-            // Avvia navTimer per aggiornare pill via/ETA ogni 2s
-            [_navTimer invalidate];
-            _navTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 target:self selector:@selector(navTick) userInfo:nil repeats:YES];
-            if (self.roadNameLabel) {
-                self.roadNameLabel.hidden = NO;
-                self.roadNameLabel.alpha = 0;
-                self.roadETAPill.hidden = NO;
-                self.roadETAPill.alpha = 0;
-                self.roadTimePill.hidden = NO;
-                self.roadTimePill.alpha = 0;
-                self.roadDistPill.hidden = NO;
-                self.roadDistPill.alpha = 0;
-                [UIView animateWithDuration:0.3 animations:^{
-                    self.roadNameLabel.alpha = 1;
-                    self.roadETAPill.alpha = 1;
-                    self.roadTimePill.alpha = 1;
-                    self.roadDistPill.alpha = 1;
-                }];
-            }
-        });
-    } else if ([message.name isEqualToString:@"requestGtfs"]) {
-        // Bus mode: load GTFS database on demand
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            NSString *gtfsPath = [[NSBundle mainBundle] pathForResource:@"gtfs_db" ofType:@"json"];
-            if (!gtfsPath) return;
-            NSError *err = nil;
-            NSData *gtfsData = [NSData dataWithContentsOfFile:gtfsPath options:NSDataReadingMappedAlways error:&err];
-            if (!gtfsData || err) return;
-            NSString *b64 = [gtfsData base64EncodedStringWithOptions:0];
-            NSString *js = [NSString stringWithFormat:@"loadGtfsDatabaseBase64('%@')", b64];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.webView evaluateJavaScript:js completionHandler:^(id res, NSError *jsErr) {
-                    if (jsErr) [self appLog:@"⚠️ GTFS load error: %@", jsErr.localizedDescription];
-                    else [self appLog:@"✅ GTFS DB loaded on-demand (%lu bytes)", (unsigned long)gtfsData.length];
-                }];
-            });
         });
     }
 }
@@ -2638,241 +1969,17 @@
     return self.searchActive_Ivar;
 }
 
-#pragma mark - Layout Edit Mode
-
-- (void)enterLayoutEditMode {
-    _layoutEditMode = YES;
-    
-    // Crea pillola stile pulsante (come Modalità, Cerca, etc.)
-    if (!self.layoutEditOverlay) {
-        CGFloat pillW = 100;
-        CGFloat pillH = 40;
-        CGFloat radius = pillH / 2;
-        CGFloat w = self.view.bounds.size.width;
-        
-        UIView *pill = [[UIView alloc] initWithFrame:CGRectMake(w - pillW - 12, 54, pillW, pillH)];
-        pill.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.45];
-        pill.layer.cornerRadius = radius;
-        pill.layer.borderWidth = 1.5;
-        pill.layer.borderColor = [[UIColor whiteColor] colorWithAlphaComponent:0.25].CGColor;
-        pill.layer.shadowColor = [UIColor blackColor].CGColor;
-        pill.layer.shadowOpacity = 0.3;
-        pill.layer.shadowRadius = 8;
-        pill.layer.shadowOffset = CGSizeZero;
-        pill.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-        pill.userInteractionEnabled = YES;
-        
-        // ✕ Annulla (grigio su cerchio bianco, piccolo)
-        UIButton *xBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-        xBtn.frame = CGRectMake(6, 4, 32, 32);
-        xBtn.backgroundColor = [UIColor whiteColor];
-        xBtn.layer.cornerRadius = 16;
-        [xBtn setTitle:@"✕" forState:UIControlStateNormal];
-        [xBtn setTitleColor:[UIColor grayColor] forState:UIControlStateNormal];
-        xBtn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
-        [xBtn addTarget:self action:@selector(layoutCancelTapped) forControlEvents:UIControlEventTouchUpInside];
-        [pill addSubview:xBtn];
-        
-        // ✓ Salva (verde)
-        UIButton *saveBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-        saveBtn.frame = CGRectMake(pillW - 38, 4, 32, 32);
-        saveBtn.tintColor = [UIColor systemGreenColor];
-        [saveBtn setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
-        [saveBtn addTarget:self action:@selector(layoutSaveTapped) forControlEvents:UIControlEventTouchUpInside];
-        [pill addSubview:saveBtn];
-        
-        [self.view addSubview:pill];
-        self.layoutEditOverlay = pill;
-    }
-    self.layoutEditOverlay.hidden = NO;
-    [self.view bringSubviewToFront:self.layoutEditOverlay];
-    
-    // Raccogli tutti gli elementi draggabili (escluso busVC, navBar, e la pill edit)
-    NSMutableArray *items = [NSMutableArray array];
-    void(^addItem)(UIView*, NSString*, CGRect) = ^(UIView *v, NSString *id, CGRect df) {
-        if (!v) return;
-        [items addObject:@{@"view": v, @"id": id, @"default": [NSValue valueWithCGRect:df]}];
-    };
-    
-    addItem(self.modalitaButton, @"modalita", CGRectMake(self.view.bounds.size.width - 112, 54, 100, 40));
-    addItem(self.mapButton, @"map", CGRectMake(self.view.bounds.size.width - 48, 54, 40, 40));
-    addItem(self.searchButton, @"search", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height * 0.35 + 10, 100, 40));
-    addItem(self.trackingButton, @"tracking", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height - 120, 100, 40));
-    addItem(self.settingsButton, @"settings", CGRectMake(self.view.bounds.size.width - 112, self.view.bounds.size.height - 60, 100, 40));
-    addItem(self.compassButton, @"compass", CGRectMake(12, self.view.bounds.size.height - 110, 52, 52));
-    addItem(self.logButton, @"log", CGRectMake(12, self.view.bounds.size.height - 170, 44, 44));
-    addItem((UIView *)self.roadNameLabel, @"streetname", CGRectMake(12, self.view.bounds.size.height - 420, self.view.bounds.size.width - 24, 40));
-    addItem(self.stopNavButton, @"stopnav", CGRectMake(self.view.bounds.size.width - 56, 54, 44, 44));
-    // 3 pillole separate ETA/Tempo/Distanza
-    addItem(self.roadETAPill, @"etapill", CGRectMake(self.view.bounds.size.width - 360, self.view.bounds.size.height - 220, 120, 55));
-    addItem(self.roadTimePill, @"timepill", CGRectMake(self.view.bounds.size.width - 230, self.view.bounds.size.height - 220, 120, 55));
-    addItem(self.roadDistPill, @"distpill", CGRectMake(self.view.bounds.size.width - 100, self.view.bounds.size.height - 220, 120, 55));
-    // Mostra temporaneamente pillole per edit (se nascoste)
-    if (self.roadNameLabel.hidden && !self.isNavigating) {
-        self.roadNameLabel.hidden = NO;
-        self.roadNameLabel.alpha = 0.5;
-        self.roadStreetLabel.text = @"Via Nome Strada";
-        self.roadNameLabel.tag = 9999;
-        // Mostra anche le 3 pillole con placeholder
-        NSMutableAttributedString *phETA = [[NSMutableAttributedString alloc] initWithString:@"14:30\narrivo"];
-        [phETA setAttributes:@{NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]} range:NSMakeRange(0, 5)];
-        [phETA setAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]} range:NSMakeRange(5, 7)];
-        self.roadETALabel.attributedText = phETA;
-        NSMutableAttributedString *phTime = [[NSMutableAttributedString alloc] initWithString:@"9 min\ntempo"];
-        [phTime setAttributes:@{NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]} range:NSMakeRange(0, 6)];
-        [phTime setAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]} range:NSMakeRange(6, 6)];
-        self.roadTimeLabel.attributedText = phTime;
-        NSMutableAttributedString *phDist = [[NSMutableAttributedString alloc] initWithString:@"3.2 km\ndistanza"];
-        [phDist setAttributes:@{NSFontAttributeName: [UIFont boldSystemFontOfSize:28], NSForegroundColorAttributeName: [UIColor whiteColor]} range:NSMakeRange(0, 6)];
-        [phDist setAttributes:@{NSFontAttributeName: [UIFont systemFontOfSize:18], NSForegroundColorAttributeName: [UIColor colorWithWhite:0.80 alpha:1.0]} range:NSMakeRange(6, 9)];
-        self.roadDistLabel.attributedText = phDist;
-        self.roadETAPill.hidden = NO;
-        self.roadETAPill.alpha = 0.5;
-        self.roadTimePill.hidden = NO;
-        self.roadTimePill.alpha = 0.5;
-        self.roadDistPill.hidden = NO;
-        self.roadDistPill.alpha = 0.5;
-    }
-    // Anche la pill edit è draggabile
-    addItem(self.layoutEditOverlay, @"editpill", CGRectMake(self.view.bounds.size.width - 112, 54, 100, 40));
-    self.layoutItems = items;
-    
-    // Aggiungi pan gesture a ogni elemento
-    for (NSDictionary *item in items) {
-        UIView *v = item[@"view"];
-        v.autoresizingMask = UIViewAutoresizingNone;
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(layoutPan:)];
-        [v addGestureRecognizer:pan];
-        v.userInteractionEnabled = YES;
-    }
-}
-
-- (void)exitLayoutEditMode:(BOOL)save {
-    _layoutEditMode = NO;
-    // Nascondi la pill edit (sparisce completamente)
-    self.layoutEditOverlay.hidden = YES;
-    
-    if (save) [self saveLayoutPositions];
-    else [self loadSavedLayout];
-    
-    // Rimuovi pan gesture
-    for (NSDictionary *item in self.layoutItems) {
-        UIView *v = item[@"view"];
-        NSMutableArray *toRemove = [NSMutableArray array];
-        for (UIGestureRecognizer *g in v.gestureRecognizers) {
-            if ([g isKindOfClass:[UIPanGestureRecognizer class]])
-                [toRemove addObject:g];
-        }
-        for (UIGestureRecognizer *g in toRemove)
-            [v removeGestureRecognizer:g];
-    }
-    self.layoutItems = nil;
-    // Se la pillola nome via era stata mostrata solo per edit, nascondila di nuovo
-    if (self.roadNameLabel.tag == 9999) {
-        self.roadNameLabel.hidden = YES;
-        self.roadStreetLabel.text = @"";
-        self.roadETALabel.text = @"";
-        self.roadTimeLabel.text = @"";
-        self.roadDistLabel.text = @"";
-        self.roadNameLabel.tag = 0;
-        // Nascondi anche le 3 pillole (erano placeholder per edit)
-        self.roadETAPill.hidden = YES;
-        self.roadTimePill.hidden = YES;
-        self.roadDistPill.hidden = YES;
-    }
-}
-
-- (void)layoutPan:(UIPanGestureRecognizer *)pan {
-    UIView *v = pan.view;
-    CGPoint t = [pan translationInView:v.superview];
-    v.center = CGPointMake(v.center.x + t.x, v.center.y + t.y);
-    [pan setTranslation:CGPointZero inView:v.superview];
-}
-
-- (void)layoutSaveTapped {
-    [self exitLayoutEditMode:YES];
-}
-
-- (void)layoutCancelTapped {
-    [self exitLayoutEditMode:NO];
-}
-
-- (void)saveLayoutPositions {
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    for (NSDictionary *item in self.layoutItems) {
-        UIView *v = item[@"view"];
-        NSString *key = item[@"id"];
-        [ud setFloat:v.frame.origin.x forKey:[NSString stringWithFormat:@"layout_%@_x", key]];
-        [ud setFloat:v.frame.origin.y forKey:[NSString stringWithFormat:@"layout_%@_y", key]];
-        [ud setFloat:v.frame.size.width forKey:[NSString stringWithFormat:@"layout_%@_w", key]];
-        [ud setFloat:v.frame.size.height forKey:[NSString stringWithFormat:@"layout_%@_h", key]];
-    }
-    [ud synchronize];
-}
-
-- (void)loadSavedLayout {
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    // Forza W e H default per streetname (pill sempre alla larghezza/ altezza giusta)
-    // NON tocchiamo X e Y così la posizione salvata dall'utente rimane
-    [ud removeObjectForKey:@"layout_streetname_w"];
-    [ud removeObjectForKey:@"layout_streetname_h"];
-    void(^apply)(UIView*, NSString*, CGRect) = ^(UIView *v, NSString *key, CGRect defFrame) {
-        if (!v) return;
-        float x = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_x", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_x", key]] : defFrame.origin.x;
-        float y = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_y", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_y", key]] : defFrame.origin.y;
-        float w = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_w", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_w", key]] : defFrame.size.width;
-        float h = [ud objectForKey:[NSString stringWithFormat:@"layout_%@_h", key]] ? [ud floatForKey:[NSString stringWithFormat:@"layout_%@_h", key]] : defFrame.size.height;
-        v.frame = CGRectMake(x, y, w, h);
-        v.autoresizingMask = UIViewAutoresizingNone;
-    };
-    
-    CGFloat w = self.view.bounds.size.width;
-    CGFloat h = self.view.bounds.size.height;
-    apply(self.modalitaButton, @"modalita", CGRectMake(w - 112, 54, 100, 40));
-    apply(self.mapButton, @"map", CGRectMake(w - 48, 54, 40, 40));
-    apply(self.searchButton, @"search", CGRectMake(w - 112, h * 0.35 + 10, 100, 40));
-    apply(self.trackingButton, @"tracking", CGRectMake(w - 112, h - 120, 100, 40));
-    apply(self.settingsButton, @"settings", CGRectMake(w - 112, h - 60, 100, 40));
-    apply(self.compassButton, @"compass", CGRectMake(12, h - 110, 52, 52));
-    apply(self.logButton, @"log", CGRectMake(12, h - 170, 44, 44));
-    apply(self.roadNameLabel, @"streetname", CGRectMake(12, h - 420, w - 24, 40));
-    apply(self.stopNavButton, @"stopnav", CGRectMake(w - 56, 54, 44, 44));
-    // 3 pillole separate ETA/Tempo/Distanza
-    apply(self.roadETAPill, @"etapill", CGRectMake(w - 360, h - 220, 120, 55));
-    apply(self.roadTimePill, @"timepill", CGRectMake(w - 230, h - 220, 120, 55));
-    apply(self.roadDistPill, @"distpill", CGRectMake(w - 100, h - 220, 120, 55));
-    // Anche la pill edit (per ricordare posizione, ma è nascosta in modalità normale)
-    if (self.layoutEditOverlay) {
-        apply(self.layoutEditOverlay, @"editpill", CGRectMake(w - 112, 54, 100, 40));
-        self.layoutEditOverlay.hidden = YES; // sempre nascosta in modalità normale
-    }
-}
-
 #pragma mark - Missing Methods
 
 - (void)applyArrowTransform {
-    // Arrow rotation gestita dal JS rAF engine
-}
-
-- (void)setRoutingProfileInJS {
-    NSString *profile;
-    switch ([SettingsStore shared].transportMode) {
-        case TransportModeBus:
-            profile = @"driving";
-            break;
-        case TransportModeTruck:
-            profile = @"driving";
-            break;
-        default:
-            profile = @"driving";
-            break;
-    }
-    NSString *js = [NSString stringWithFormat:@"setRoutingProfile('%@')", profile];
-    [self.webView evaluateJavaScript:js completionHandler:nil];
+    SettingsStore *st = [SettingsStore shared];
+    CGFloat rotation = st.arrowRotation;
+    [self.webView evaluateJavaScript:[NSString stringWithFormat:@"updateArrowRotation(%f, %f, %f);",
+        _currentCourse, _cameraHeading, rotation] completionHandler:nil];
 }
 
 - (void)recalculateRoute {
-    [self setRoutingProfileInJS];
+    if (_isRecalculating || !_pendingDestDict) return;
     _isRecalculating = YES;
     
     CGFloat destLat = [_pendingDestDict[@"lat"] doubleValue];

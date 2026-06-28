@@ -164,28 +164,4 @@ static NSString* alertLevelName(AlertLevel a) {
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"recentDests"];
 }
 
-- (void)removeRecentDestination:(NSDictionary *)dest {
-    NSMutableArray *arr = [[self recentDestinations] mutableCopy];
-    NSString *name = dest[@"name"];
-    NSString *lineNum = dest[@"lineNumber"];
-    if (name) {
-        for (NSDictionary *existing in [arr copy]) {
-            BOOL match = NO;
-            if (lineNum && existing[@"lineNumber"]) {
-                // Bus route: match per lineNumber + direction
-                match = [existing[@"lineNumber"] isEqualToString:lineNum]
-                     && [existing[@"direction"] integerValue] == [dest[@"direction"] integerValue];
-            } else {
-                // Address: match per name + lat/lon
-                match = [existing[@"name"] isEqualToString:name];
-            }
-            if (match) {
-                [arr removeObject:existing];
-                break;
-            }
-        }
-    }
-    [[NSUserDefaults standardUserDefaults] setObject:arr forKey:@"recentDests"];
-}
-
 @end

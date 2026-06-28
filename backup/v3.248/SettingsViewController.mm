@@ -837,8 +837,8 @@ static NSArray<SettingsRow*>* sectionRows(SettingsSection s) {
     [tsw addTarget:self action:@selector(themeSwitchChanged:) forControlEvents:UIControlEventValueChanged];
     [self.slidersView addSubview:tsw];
     [NSLayoutConstraint activateConstraints:@[
-        [tsw.topAnchor constraintEqualToAnchor:tsh.bottomAnchor constant:4],
-        [tsw.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
+        [tsw.topAnchor constraintEqualToAnchor:tsh.bottomAnchor constant:8],
+        [tsw.trailingAnchor constraintEqualToAnchor:self.slidersView.trailingAnchor constant:-12],
     ]];
     
     UILabel *tsv = [[UILabel alloc] init];
@@ -849,69 +849,29 @@ static NSArray<SettingsRow*>* sectionRows(SettingsSection s) {
     [self.slidersView addSubview:tsv];
     [NSLayoutConstraint activateConstraints:@[
         [tsv.centerYAnchor constraintEqualToAnchor:tsw.centerYAnchor],
-        [tsv.leadingAnchor constraintEqualToAnchor:tsw.trailingAnchor constant:8],
+        [tsv.trailingAnchor constraintEqualToAnchor:tsw.leadingAnchor constant:-8],
     ]];
     
-    // ── 🖥️ Modalità edit schermo ──
-    UILabel *esh = [[UILabel alloc] init]; esh.text = LOC(@"🖥️ Modalità edit schermo");
-    esh.font = [UIFont boldSystemFontOfSize:14];
-    esh.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65]; esh.translatesAutoresizingMaskIntoConstraints=NO;
-    [self.slidersView addSubview:esh];
+    // ── ☀️ Luminosità mappa ──
+    float mapBri = [SettingsStore shared].mapBrightness;
+    UILabel *mbh = [[UILabel alloc] init]; mbh.text = LOC(@"☀️ Luminosità mappa");
+    mbh.font = [UIFont boldSystemFontOfSize:14];
+    mbh.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.65]; mbh.translatesAutoresizingMaskIntoConstraints=NO;
+    [self.slidersView addSubview:mbh];
     [NSLayoutConstraint activateConstraints:@[
-        [esh.topAnchor constraintEqualToAnchor:self.slidersView.topAnchor constant:900],
-        [esh.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
+        [mbh.topAnchor constraintEqualToAnchor:self.slidersView.topAnchor constant:900],
+        [mbh.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
     ]];
     
-    UILabel *esd = [[UILabel alloc] init];
-    esd.text = LOC(@"Sposta pulsanti e finestre dove vuoi");
-    esd.font = [UIFont systemFontOfSize:11];
-    esd.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
-    esd.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.slidersView addSubview:esd];
-    [NSLayoutConstraint activateConstraints:@[
-        [esd.topAnchor constraintEqualToAnchor:esh.bottomAnchor constant:4],
-        [esd.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
-    ]];
+    [self mkSX:13 top:916 t:LOC(@"Oscurità") mn:0.0 mx:1.0 val:mapBri fn:^(UISlider*sl){
+        [SettingsStore shared].mapBrightness = sl.value;
+        [[SettingsStore shared] save];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"MapSettingsChanged" object:nil];
+    } minL:LOC(@"Luminoso") midL:@"" maxL:LOC(@"Scuro") s:&a13 l:&v13 save:@"mapBri" cam:NO];
     
-    UISwitch *esw = [[UISwitch alloc] init];
-    esw.onTintColor = [UIColor systemBlueColor];
-    esw.translatesAutoresizingMaskIntoConstraints = NO;
-    esw.on = self.mapVC.layoutEditMode;
-    [esw addTarget:self action:@selector(editLayoutSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-    [self.slidersView addSubview:esw];
-    [NSLayoutConstraint activateConstraints:@[
-        [esw.topAnchor constraintEqualToAnchor:esd.bottomAnchor constant:4],
-        [esw.leadingAnchor constraintEqualToAnchor:self.slidersView.leadingAnchor constant:4],
-    ]];
-    
-    UILabel *esv = [[UILabel alloc] init];
-    esv.text = self.mapVC.layoutEditMode ? LOC(@"Attivo") : LOC(@"Disattivo");
-    esv.font = [UIFont systemFontOfSize:12];
-    esv.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.5];
-    esv.translatesAutoresizingMaskIntoConstraints = NO;
-    esv.tag = 5555;
-    [self.slidersView addSubview:esv];
-    [NSLayoutConstraint activateConstraints:@[
-        [esv.centerYAnchor constraintEqualToAnchor:esw.centerYAnchor],
-        [esv.leadingAnchor constraintEqualToAnchor:esw.trailingAnchor constant:8],
-    ]];
 }
 
 // Helper: Trasparenza = alpha del background (0.15=molto vetro, 0.7=quasi opaco)
-- (void)editLayoutSwitchChanged:(UISwitch *)sw {
-    if (sw.on) {
-        [self.mapVC enterLayoutEditMode];
-        // Chiudi impostazioni così l'utente può interagire con la mappa
-        [self dismiss];
-    } else {
-        // Se lo switch viene spento da qui, usciamo salvando
-        [self.mapVC exitLayoutEditMode:YES];
-    }
-    // Aggiorna label "Attivo/Disattivo"
-    UILabel *esv = [self.slidersView viewWithTag:5555];
-    esv.text = sw.on ? LOC(@"Attivo") : LOC(@"Disattivo");
-}
-
 - (void)applyBlurStyle:(float)v {
     self.mainBlur.backgroundColor=[[UIColor blackColor] colorWithAlphaComponent:0.15 + v*0.55];
 }
@@ -1000,40 +960,10 @@ static char kFn,kVl,kKey;
         self.mapVC.busVC.view.hidden = NO;
         self.mapVC.busVC.view.alpha = 1.0;
     }
-    // Floating value + push al JS rAF engine in tempo reale
-    if (sl.tag >= 0 && sl.tag <= 3) {
-        [self updateSliderFloatValue:sl];
-    }
-    if (sl.tag >= 11 && sl.tag <= 13) {
-        [self updateSliderFloatValue:sl];
-    }
 }
 
-- (void)camSliderDown:(UISlider*)sl {
-    [UIView animateWithDuration:0.2 animations:^{ self.mainBlur.alpha=0.12; }];
-    // Mostra valore slider fluttuante sulla mappa
-    [self updateSliderFloatValue:sl];
-}
-- (void)camSliderUp:(UISlider*)sl {
-    [self.mapVC hideSliderValue];
-    [UIView animateWithDuration:0.2 animations:^{ self.mainBlur.alpha=1.0; }];
-}
-
-- (void)updateSliderFloatValue:(UISlider*)sl {
-    NSString *txt;
-    float v = sl.value;
-    if (sl.tag == 0) txt = [NSString stringWithFormat:@"%.0f m", v];          // altitude
-    else if (sl.tag == 1) txt = [NSString stringWithFormat:@"%.0f°", v];     // pitch
-    else if (sl.tag == 2) txt = [NSString stringWithFormat:@"%.1f m", v];    // offset
-    else if (sl.tag == 3) txt = [NSString stringWithFormat:@"%.0f°", v];     // heading
-    else if (sl.tag == 11) txt = [NSString stringWithFormat:@"%.0f°", v];    // heading 2
-    else if (sl.tag == 12) txt = [NSString stringWithFormat:@"%.0f°", v];    // pitch 2
-    else return;
-    [self.mapVC showSliderValue:txt];
-    // Push camera settings al JS rAF engine in tempo reale
-    if (sl.tag <= 3 || sl.tag >= 11)
-        [self.mapVC pushCameraSettingsToJS];
-}
+- (void)camSliderDown:(UISlider*)sl { [UIView animateWithDuration:0.2 animations:^{ self.mainBlur.alpha=0.12; }]; }
+- (void)camSliderUp:(UISlider*)sl { [UIView animateWithDuration:0.2 animations:^{ self.mainBlur.alpha=1.0; }]; }
 
 - (void)busSliderDown:(UISlider*)sl {
     // Fade impostazioni e mostra autobus in tempo reale
