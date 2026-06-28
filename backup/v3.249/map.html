@@ -76,50 +76,49 @@ try {
   
   // === LAYER POSIZIONE UTENTE (pallino blu, sempre visibile) ===
   // Questo layer mostra la posizione GPS su tutta la mappa, senza navigazione
-  // I source/layer vengono aggiunti dopo style.load
-  var _userLocationInitDone = false;
-  function _initUserLocation() {
-    if (_userLocationInitDone) return;
-    _userLocationInitDone = true;
-    try {
-    map.addSource('user-location', {
-    type: 'geojson',
-    data: { type: 'Feature', geometry: { type: 'Point', coordinates: [11.34, 44.49] } }
-  });
-  map.addLayer({
-    id: 'user-location-layer',
-    type: 'circle',
-    source: 'user-location',
-    paint: {
-      'circle-radius': 8,
-      'circle-color': '#4488ff',
-      'circle-stroke-width': 3,
-      'circle-stroke-color': '#ffffff',
-      'circle-opacity': 0.9
-    }
-  });
-  // Layer anello esterno (pulsazione per GPS attivo)
-  map.addLayer({
-    id: 'user-location-ring',
-    type: 'circle',
-    source: 'user-location',
-    paint: {
-      'circle-radius': 14,
-      'circle-color': 'rgba(68, 136, 255, 0.2)',
-      'circle-stroke-width': 0
-    }
-  });
+  // Deferred to style.load (added after map style is ready)
 } catch(e) {
-  appLog("❌ user-location source/layer error: " + (e.message || e));
+  appLog("❌ MapLibre init error: " + (e.message || e));
 }
 
-// Hide buildings when style loads
+// Hide buildings when style loads AND init user-location
 if (map) {
   map.on("style.load", function() {
-  _initUserLocation();
-  try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
-  try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
-  appLog("✓ Stile map caricato (OpenFreeMap liberty)");
+    // Aggiungi layer posizione utente DOPO che lo style è caricato
+    try {
+      map.addSource('user-location', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'Point', coordinates: [11.34, 44.49] } }
+      });
+      map.addLayer({
+        id: 'user-location-layer',
+        type: 'circle',
+        source: 'user-location',
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#4488ff',
+          'circle-stroke-width': 3,
+          'circle-stroke-color': '#ffffff',
+          'circle-opacity': 0.9
+        }
+      });
+      map.addLayer({
+        id: 'user-location-ring',
+        type: 'circle',
+        source: 'user-location',
+        paint: {
+          'circle-radius': 14,
+          'circle-color': 'rgba(68, 136, 255, 0.2)',
+          'circle-stroke-width': 0
+        }
+      });
+      appLog("✓ User-location layers added after style.load");
+    } catch(e) {
+      appLog("❌ user-location layer error: " + e.message);
+    }
+    try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
+    try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
+    appLog("✓ Stile map caricato (OpenFreeMap liberty)");
   });
 }
 
@@ -164,13 +163,12 @@ function updateArrowRotation(heading, cameraHeading, offset) {
   markerArrow.style.transform = markerArrow.style.transform.replace(/ rotate\([^)]+\)/, "") + " rotate(" + angle + "deg)";
 }
 
-// NavEngine functions -- no-op (CSS arrow mode)
+// NavEngine functions -- no-op (CSS arrow mode, ObjC timers gestiscono tutto)
 function initNavEngine() {}
 function startNavEngine() {}
 function stopNavEngine() {}
 
-// ===================================================================
-// ===================================================================
+// ===================================================================// ===================================================================
 // SEARCH (Nominatim)
 // ===================================================================
 var _searchReqId = 0;
@@ -1274,7 +1272,7 @@ if (map) {
 function animateCamera(lat, lon, zoom, bearing, pitch) {
   try {
     map.easeTo({ center: [lon, lat], zoom: zoom || 16, bearing: bearing || 0, pitch: pitch || 60, duration: 16 });
-    appLog("📷 animateCamera → center=" + lat.toFixed(4) + "," + lon.toFixed(4) + " zoom=" + (zoom||16).toFixed(1) + " bearing=" + (bearing||0));
+    appLog("📷 animateCamera → center=" + lat.toFixed(4) + "," + lon.toFixed(4) + " zoom=" + (zoom||16).toFixed(1) + " bearing=" + (bearing||0).toFixed(0));
   } catch(e) {
     appLog("⚠️ animateCamera error: " + (e.message || e));
   }
