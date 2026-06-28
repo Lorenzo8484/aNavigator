@@ -76,7 +76,13 @@ try {
   
   // === LAYER POSIZIONE UTENTE (pallino blu, sempre visibile) ===
   // Questo layer mostra la posizione GPS su tutta la mappa, senza navigazione
-  map.addSource('user-location', {
+  // I source/layer vengono aggiunti dopo style.load
+  var _userLocationInitDone = false;
+  function _initUserLocation() {
+    if (_userLocationInitDone) return;
+    _userLocationInitDone = true;
+    try {
+    map.addSource('user-location', {
     type: 'geojson',
     data: { type: 'Feature', geometry: { type: 'Point', coordinates: [11.34, 44.49] } }
   });
@@ -104,23 +110,16 @@ try {
     }
   });
 } catch(e) {
-  appLog("❌ MapLibre init error: " + (e.message || e));
+  appLog("❌ user-location source/layer error: " + (e.message || e));
 }
 
 // Hide buildings when style loads
 if (map) {
   map.on("style.load", function() {
-    try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
-    try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
-    appLog("✓ Stile map caricato (OpenFreeMap liberty)");
-  });
-  // Riposiziona freccia CSS quando camera si muove
-  map.on("move", function() {
-    if (markerArrow && userLat && userLng) {
-      var pt = map.project([userLng, userLat]);
-      var rot = (userCourse > 0) ? " rotate(" + userCourse + "deg)" : "";
-      markerArrow.style.transform = "translate(-50%,-50%) translate(" + pt.x.toFixed(1) + "px," + pt.y.toFixed(1) + "px)" + rot;
-    }
+  _initUserLocation();
+  try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
+  try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
+  appLog("✓ Stile map caricato (OpenFreeMap liberty)");
   });
 }
 
@@ -128,13 +127,15 @@ if (map) {
 // FUNZIONI CHIAMATE DA OBJC (via evaluateJavaScript)
 // ===================================================================
 
-// ---- POSITION (CSS arrow a posizione fissa sullo schermo) ----
+// ---- CSS ARROW (a posizione schermo fissa, come v3.193) ----
 var markerArrow = null;
 var _arrowScreenY = 0.35; // 35% dall'alto = freccia in basso
 
-function updatePosition(lat, lng) {
+// ObjC chiama pushPosition a 5fps. CSS arrow + ObjC timers gestiscono tutto.
+function pushPosition(lat, lng, bearing, ts) {
   userLat = lat; userLng = lng;
   recalcLat = lat; recalcLng = lng;
+  userCourse = bearing || 0;
   if (!markerArrow) {
     var el = document.createElement("div");
     el.style.cssText = "width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:24px solid #4488ff;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.5));position:absolute;left:50%;top:35%;pointer-events:none;z-index:10000;will-change:transform";
@@ -148,7 +149,7 @@ function updatePosition(lat, lng) {
   markerArrow.style.transform = "translate(-50%,-50%)" + rot;
   hasGps = true;
   
-  // Aggiorna anche il pallino blu user-location (se presente)
+  // Aggiorna anche il pallino blu user-location sulla mappa
   try {
     var src = map.getSource('user-location');
     if (src) src.setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] } });
@@ -163,44 +164,12 @@ function updateArrowRotation(heading, cameraHeading, offset) {
   markerArrow.style.transform = markerArrow.style.transform.replace(/ rotate\([^)]+\)/, "") + " rotate(" + angle + "deg)";
 }
 
-function updateCompass(heading) {
-  // Compass is handled natively in ObjC with compass.png
-}
-
-function centerOnUser() {
-  if (hasGps) map.flyTo({center:[userLng, userLat], zoom:16, pitch:50, bearing:userCourse});
-}
-
-// ---- CAMERA ----
-function setMapCenter(lat, lng, zoom) {
-  map.flyTo({center:[lng, lat], zoom:zoom || 15, pitch:50, duration:300});
-}
-
-function setMapBearing(heading) {
-  map.easeTo({bearing:heading, duration:300});
-}
-
-function setMapTilt(pitch) {
-  map.easeTo({pitch:pitch, duration:300});
-}
-
-function animateCamera(lat, lng, zoom, bearing, pitch) {
-  appLog("animateCamera: center=" + lat.toFixed(4)+","+lng.toFixed(4)+" zoom="+zoom.toFixed(1)+" bearing="+(bearing||0).toFixed(0));
-  map.easeTo({center:[lng, lat], zoom:zoom, bearing:bearing || 0, pitch:pitch || 50, duration:16});
-}
-
-// ---- OBJC COMPATIBILITY ----
-// pushPosition mantenuto per compatibilità ObjC
-function pushPosition(lat, lng, bearing, ts) {
-  userCourse = bearing || 0;
-  updatePosition(lat, lng);
-}
-
-// NavEngine functions — no-op (CSS arrow mode, ObjC timers gestiscono tutto)
+// NavEngine functions -- no-op (CSS arrow mode)
+function initNavEngine() {}
 function startNavEngine() {}
 function stopNavEngine() {}
-function initNavEngine() {}
 
+// ===================================================================
 // ===================================================================
 // SEARCH (Nominatim)
 // ===================================================================
@@ -1201,8 +1170,13 @@ function startBusNavWithCoords(combined, busData, lastStop) {
   navETA = _totalRouteDist / 13.9;
   isNavigating = true;
   hasGps = true;
+  // Push posizione corrente 2x per avere buffer >= 2 per interpolazione immediata
+  var now = performance.now();
+  _navEnginePending.push({lat: userLat, lng: userLng, bearing: userCourse || 0, ts: now - 50});
+  _navEnginePending.push({lat: userLat, lng: userLng, bearing: userCourse || 0, ts: now});
   if (navTimer) clearInterval(navTimer);
   navTimer = setInterval(function() { navTick(); }, 1000);
+  startNavEngine();
   
   // Notifica ObjC
   try { webkit.messageHandlers.navigationStart.postMessage(JSON.stringify({
@@ -1297,6 +1271,24 @@ if (map) {
 // ===================================================================
 // FUNZIONI CHIAMATE DA OBJC (impostazioni mappa)
 // ===================================================================
+function animateCamera(lat, lon, zoom, bearing, pitch) {
+  try {
+    map.easeTo({ center: [lon, lat], zoom: zoom || 16, bearing: bearing || 0, pitch: pitch || 60, duration: 16 });
+    appLog("📷 animateCamera → center=" + lat.toFixed(4) + "," + lon.toFixed(4) + " zoom=" + (zoom||16).toFixed(1) + " bearing=" + (bearing||0));
+  } catch(e) {
+    appLog("⚠️ animateCamera error: " + (e.message || e));
+  }
+}
+
+// Centra la mappa sulla posizione utente
+function centerOnUser() {
+  try {
+    map.jumpTo({ center: [userLng, userLat], zoom: 16, pitch: 60 });
+    appLog("📍 centerOnUser → " + userLat.toFixed(4) + "," + userLng.toFixed(4));
+  } catch(e) {
+    appLog("⚠️ centerOnUser error: " + (e.message || e));
+  }
+}
 var _lastBrightness = 1.0;
 var _isDark = false;
 
