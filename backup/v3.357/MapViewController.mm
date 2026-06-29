@@ -873,9 +873,11 @@
         _colonLabel.frame = CGRectMake(colonX, 0, 16, 44);
         _minPicker.frame = CGRectMake(minX, -48, 44, 140);
         
-        // Annulla button — top-right, sopra la barra
-        _annullaButton.frame = CGRectMake(w - _annullaButton.frame.size.width - 12, safeTop - 30, _annullaButton.frame.size.width, _annullaButton.frame.size.height);
+        // Annulla button — subito sopra la barra di ricerca
+        CGFloat annY = safeTop + 8 - _annullaButton.frame.size.height - 4;
+        _annullaButton.frame = CGRectMake(w - _annullaButton.frame.size.width - 12, annY, _annullaButton.frame.size.width, _annullaButton.frame.size.height);
         _annullaButton.hidden = NO;
+        [self.searchOverlay bringSubviewToFront:_annullaButton];
         
         [_dayPicker selectRow:(31 * 5 + (_selectedDay - 1)) inComponent:0 animated:NO];
         [_monthPicker selectRow:(12 * 5 + (_selectedMonth - 1)) inComponent:0 animated:NO];
