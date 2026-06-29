@@ -874,7 +874,7 @@
         _minPicker.frame = CGRectMake(minX, -48, 44, 140);
         
         // Annulla button — subito sopra la barra di ricerca
-        CGFloat annY = safeTop + 8 - _annullaButton.frame.size.height - 4;
+        CGFloat annY = safeTop + 8 - _annullaButton.frame.size.height;
         _annullaButton.frame = CGRectMake(w - _annullaButton.frame.size.width - 12, annY, _annullaButton.frame.size.width, _annullaButton.frame.size.height);
         _annullaButton.hidden = NO;
         [self.searchOverlay bringSubviewToFront:_annullaButton];
