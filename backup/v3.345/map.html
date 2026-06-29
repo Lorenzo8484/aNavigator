@@ -1062,7 +1062,10 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
   appLog("✅ " + (dir===0?"Andata":"Ritorno") + ": stops=" + tripStops.length + ", dep=" + depTime + ", color=" + routeColor);
   stopNavEngine();
   
-  var coords = tripStops.map(function(s){return [s.lon, s.lat];});
+  // Usa la shape GTFS TPER (percorso REALE del bus) invece di linee rette tra fermate
+  // La shape e in formato [[lat,lon],...], va convertita in [lon,lat] per MapLibre
+  var shapeCoords = (sh[pat.sh] || []).map(function(p){return [p[1], p[0]];});
+  var coords = (shapeCoords.length >= 2) ? shapeCoords : tripStops.map(function(s){return [s.lon, s.lat];});
   var drawOk = false;
   try {
     // Rimuovi SOLO i layer vecchi (NON bus-route-v2 che non usiamo piu per doppio percorso)
@@ -1105,8 +1108,7 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
       clearTimeout(to);
       if(data&&data.routes&&data.routes[0]){
         var rc=data.routes[0].geometry.coordinates;
-        try{map.getSource('bus-route-v1').setData({type:'Feature',geometry:{type:'LineString',coordinates:rc}});}catch(ee){}
-        try{var bb=new maplibregl.LngLatBounds();rc.forEach(function(c){bb.extend(c);});map.fitBounds(bb,{padding:80,pitch:50,maxZoom:16});}catch(ee){}
+        // NON sovrascrivere bus-route-v1 — la shape TPER e il percorso VISIBILE
         try{if(markerDest)markerDest.setLngLat(rc[rc.length-1]);}catch(ee){}
         _busOsrmCoords=rc;
         // Estrai nomi strade OSRM per la barra via in basso
