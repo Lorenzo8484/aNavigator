@@ -74,7 +74,7 @@
     UIView *_searchContainer;
     UITextField *_searchField;
     BOOL _isBusSearchMode;
-    UIButton *_closeSearchXButton;
+    UIButton *_annullaButton;
 }
 
 - (void)viewDidLoad {
@@ -311,13 +311,14 @@
     _minPicker.backgroundColor = [UIColor clearColor];
     [_searchContainer addSubview:_minPicker];
     
-    // ❌ Pulsante X per chiudere la ricerca (tra textField e picker giorno)
-    _closeSearchXButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _closeSearchXButton.frame = CGRectMake(0, 10, 24, 24);
-    _closeSearchXButton.tintColor = [UIColor colorWithWhite:0.40 alpha:1.0];
-    [_closeSearchXButton setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
-    [_closeSearchXButton addTarget:self action:@selector(closeSearch) forControlEvents:UIControlEventTouchUpInside];
-    [_searchContainer addSubview:_closeSearchXButton];
+    // Annulla button (top-right, sopra la barra di ricerca)
+    _annullaButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _annullaButton.tintColor = [UIColor whiteColor];
+    _annullaButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
+    [_annullaButton setTitle:@"Annulla" forState:UIControlStateNormal];
+    [_annullaButton sizeToFit];
+    [_annullaButton addTarget:self action:@selector(closeSearch) forControlEvents:UIControlEventTouchUpInside];
+    [self.searchOverlay addSubview:_annullaButton];
     
     [self.view addSubview:self.searchOverlay];
     
@@ -865,14 +866,16 @@
         CGFloat monthX = hourX - 2 - 68;
         CGFloat dayX = monthX - 2 - 50;
         
-        _searchField.frame = CGRectMake(40, 0, MAX(dayX - 74, 50), 44);
-        _closeSearchXButton.frame = CGRectMake(dayX - 28, 10, 24, 24);
-        _closeSearchXButton.hidden = NO;
+        _searchField.frame = CGRectMake(40, 0, MAX(dayX - 43, 50), 44);
         _dayPicker.frame = CGRectMake(dayX, -48, 50, 140);
         _monthPicker.frame = CGRectMake(monthX, -48, 68, 140);
         _hourPicker.frame = CGRectMake(hourX, -48, 44, 140);
         _colonLabel.frame = CGRectMake(colonX, 0, 16, 44);
         _minPicker.frame = CGRectMake(minX, -48, 44, 140);
+        
+        // Annulla button — top-right, sopra la barra
+        _annullaButton.frame = CGRectMake(w - _annullaButton.frame.size.width - 12, safeTop - 30, _annullaButton.frame.size.width, _annullaButton.frame.size.height);
+        _annullaButton.hidden = NO;
         
         [_dayPicker selectRow:(31 * 5 + (_selectedDay - 1)) inComponent:0 animated:NO];
         [_monthPicker selectRow:(12 * 5 + (_selectedMonth - 1)) inComponent:0 animated:NO];
@@ -885,6 +888,7 @@
         self.searchBar.hidden = NO;
         _searchContainer.hidden = YES;
         _isBusSearchMode = NO;
+        _annullaButton.hidden = YES;
         self.searchBar.frame = CGRectMake(12, safeTop + 8, w - 24, 44);
         self.searchBar.showsCancelButton = YES;
         self.searchBar.searchTextField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:@"Cerca indirizzo o luogo..." attributes:@{NSForegroundColorAttributeName: [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0]}];
