@@ -107,12 +107,17 @@ try {
   appLog("❌ MapLibre init error: " + (e.message || e));
 }
 
-// Hide buildings when style loads
+// Hide buildings when style loads + pre-carica GTFS DB
 if (map) {
   map.on("style.load", function() {
     try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
     try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
     appLog("✓ Stile map caricato (OpenFreeMap liberty)");
+    // Pre-carica GTFS DB subito in background (invece che on-demand alla ricerca)
+    if (!_gtfsDB) {
+      try { webkit.messageHandlers.requestGtfs.postMessage(""); } catch(e) {}
+      appLog("⏳ Pre-caricamento GTFS DB in background...");
+    }
   });
 }
 
