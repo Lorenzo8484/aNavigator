@@ -906,6 +906,15 @@ function nativeSearchBusLine(query) {
     // Se stale, non mandare
     if (reqId !== _busSearchReqId) return;
     
+    // Deduplica per (departure, dir)
+    var seen = {};
+    results = results.filter(function(r) {
+      var key = r.departure + '|' + r.dirLabel;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+    
     results.sort(function(a, b) { return a.dist - b.dist; });
     _lastSearchResults = results;
     try { webkit.messageHandlers.searchResults.postMessage(results); } catch(e) {}
