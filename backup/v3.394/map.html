@@ -1264,57 +1264,62 @@ function matchChunk(coords, onComplete) {
 // ===================================================================
 // OSRM Nearest — snap OGNI punto sulla strada (parallelo, batch da 5)
 // ===================================================================
-function snapShapeNearest(shapeCoords, onComplete) {
-  var batchSize = 5;
-  var total = shapeCoords.length;
-  appLog("📍 Nearest: " + total + " pt in batch da " + batchSize + "...");
-  var snapped = new Array(total);
-  
-  function processBatch(start) {
-    var end = Math.min(start + batchSize, total);
-    var batchPromises = [];
-    
-    for (var i = start; i < end; i++) {
-      (function(idx) {
-        var lng = shapeCoords[idx][0];
-        var lat = shapeCoords[idx][1];
-        var url = OSRM_URL + "/nearest/v1/driving/" + lng + "," + lat + "?number=1";
-        var ctrl = new AbortController();
-        var to = setTimeout(function(){ ctrl.abort(); }, 5000);
-        var p = fetch(url, {signal: ctrl.signal})
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data && data.waypoints && data.waypoints[0] && data.waypoints[0].location) {
-              snapped[idx] = data.waypoints[0].location;
-            } else {
-              snapped[idx] = shapeCoords[idx];
-            }
-          })
-          .catch(function(err) {
-            snapped[idx] = shapeCoords[idx];
-          })
-          .finally(function() {
-            clearTimeout(to);
-          });
-        batchPromises.push(p);
-      })(i);
-    }
-    
-    Promise.all(batchPromises).then(function() {
-      if (end >= total) {
-        var result = [];
-        for (var j = 0; j < snapped.length; j++) {
-          if (snapped[j]) result.push(snapped[j]);
-        }
-        appLog("✅ Nearest: " + result.length + " pt centrati sulla strada");
-        onComplete(result);
-      } else {
-        setTimeout(function() { processBatch(end); }, 100);
-      }
-    });
+function nearestPointOnLine(lineCoords, pt) {
+  var bestDist = Infinity, bestPt = pt;
+  for (var i = 0; i < lineCoords.length - 1; i++) {
+    var a = lineCoords[i], b = lineCoords[i+1];
+    var dx = b[0] - a[0], dy = b[1] - a[1];
+    var lenSq = dx*dx + dy*dy;
+    if (lenSq < 0.00000001) continue;
+    var t = Math.max(0, Math.min(1, ((pt[0]-a[0])*dx + (pt[1]-a[1])*dy) / lenSq));
+    var cx = a[0] + t*dx, cy = a[1] + t*dy;
+    var d = Math.sqrt((pt[0]-cx)*(pt[0]-cx) + (pt[1]-cy)*(pt[1]-cy));
+    if (d < bestDist) { bestDist = d; bestPt = [cx, cy]; }
   }
+  return bestPt;
+}
+
+// SNAP LOCALE via MapLibre road data — INSTANT, zero network
+function snapShapeLocal(shapeCoords, onComplete) {
+  var total = shapeCoords.length;
+  var snapped = new Array(total);
+  var roadClasses = {road:1,street:1,highway:1,main:1,primary:1,secondary:1,tertiary:1,residential:1,unclassified:1,service:1,living_street:1,motorway:1,trunk:1};
   
-  processBatch(0);
+  for (var i = 0; i < total; i++) {
+    (function(idx) {
+      var pt = shapeCoords[idx];
+      var px = map.project([pt[0], pt[1]]);
+      var features = map.queryRenderedFeatures([[px.x-40, px.y-40], [px.x+40, px.y+40]]);
+      var bestDist = Infinity, bestPt = pt;
+      for (var fi = 0; fi < features.length; fi++) {
+        var f = features[fi];
+        if (!f || !f.geometry) continue;
+        var cls = (f.properties && (f.properties.class || f.properties.highway || '')).toLowerCase();
+        if (!roadClasses[cls]) continue;
+        var geo = f.geometry;
+        if (geo.type === 'LineString') {
+          var sp = nearestPointOnLine(geo.coordinates, pt);
+          var d = Math.sqrt((pt[0]-sp[0])*(pt[0]-sp[0])+(pt[1]-sp[1])*(pt[1]-sp[1]));
+          if (d < bestDist) { bestDist = d; bestPt = sp; }
+        } else if (geo.type === 'MultiLineString') {
+          for (var j = 0; j < geo.coordinates.length; j++) {
+            var sp = nearestPointOnLine(geo.coordinates[j], pt);
+            var d = Math.sqrt((pt[0]-sp[0])*(pt[0]-sp[0])+(pt[1]-sp[1])*(pt[1]-sp[1]));
+            if (d < bestDist) { bestDist = d; bestPt = sp; }
+          }
+        }
+      }
+      snapped[idx] = bestPt;
+    })(i);
+  }
+  // Filtra eventuali undefined
+  var result = [];
+  for (var j = 0; j < snapped.length; j++) {
+    if (snapped[j]) result.push(snapped[j]); 
+    else result.push(shapeCoords[j]);
+  }
+  appLog("📍 Snap locale: " + result.length + " pt centrati (0 network)");
+  onComplete(result);
 }
 
 // ===================================================================
@@ -1475,7 +1480,7 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
     
     // Nearest + median filter — snap sulla strada
     if (shapeCoords && shapeCoords.length >= 2) {
-      snapShapeNearest(shapeCoords, function(snapped) {
+      snapShapeLocal(shapeCoords, function(snapped) {
         if (snapped && snapped.length >= 2) {
           try {
             var filtered = medianFilter(snapped, 7);
@@ -1483,7 +1488,7 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
               type: 'Feature',
               geometry: { type: 'LineString', coordinates: filtered }
             });
-            appLog("✅ Nearest+Med7: " + snapped.length + "→" + filtered.length + " pt");
+            appLog("✅ Snap locale+Med7: " + snapped.length + "→" + filtered.length + " pt (0 network)");
           } catch(e) { appLog("⚠️ Nearest/Med: " + e.message); }
         }
       });
