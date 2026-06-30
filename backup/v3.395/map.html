@@ -1279,6 +1279,50 @@ function nearestPointOnLine(lineCoords, pt) {
   return bestPt;
 }
 
+// ===================================================================
+// OSRM Nearest — snap OGNI punto shape sulla strada (10 paralleli/batch)
+// ===================================================================
+function snapShapeNearest(shapeCoords, onComplete) {
+  var total = shapeCoords.length;
+  var batchSize = 10;
+  var snapped = new Array(total);
+  var errors = 0;
+  appLog("📍 OSRM Nearest: " + total + " pt in batch da " + batchSize);
+  
+  function processBatch(start) {
+    var end = Math.min(start + batchSize, total);
+    var batchPromises = [];
+    for (var i = start; i < end; i++) {
+      (function(idx) {
+        var lng = shapeCoords[idx][0], lat = shapeCoords[idx][1];
+        var url = OSRM_URL + "/nearest/v1/driving/" + lng + "," + lat + "?number=1";
+        var ctrl = new AbortController();
+        var to = setTimeout(function(){ ctrl.abort(); }, 8000);
+        batchPromises.push(
+          fetch(url, {signal: ctrl.signal})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data && data.waypoints && data.waypoints[0] && data.waypoints[0].location)
+                snapped[idx] = data.waypoints[0].location;
+              else { snapped[idx] = shapeCoords[idx]; errors++; }
+            })
+            .catch(function() { snapped[idx] = shapeCoords[idx]; errors++; })
+            .finally(function() { clearTimeout(to); })
+        );
+      })(i);
+    }
+    Promise.all(batchPromises).then(function() {
+      if (end >= total) {
+        var result = [];
+        for (var j = 0; j < snapped.length; j++) { if (snapped[j]) result.push(snapped[j]); }
+        appLog("✅ OSRM Nearest: " + result.length + " pt (" + errors + " fallback)");
+        onComplete(result);
+      } else { setTimeout(function() { processBatch(end); }, 200); }
+    });
+  }
+  processBatch(0);
+}
+
 // SNAP LOCALE via MapLibre road data — INSTANT, zero network
 function snapShapeLocal(shapeCoords, onComplete) {
   var total = shapeCoords.length;
