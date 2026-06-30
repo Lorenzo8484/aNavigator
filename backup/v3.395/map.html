@@ -1477,21 +1477,19 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
       } else { _busOsrmCoords=null; }
     }).catch(function(err){clearTimeout(to);_busOsrmCoords=null;});
     
-    // Shape TPER — percorso REALE del bus, disegnato sopra
+    // OSRM Nearest — OGNI punto snapato sulla strada
+    var firstShape = shapeCoords[0], lastShape = shapeCoords[shapeCoords.length-1];
+    appLog("📌 Shape: " + shapeCoords.length + " pt, " + firstShape[0].toFixed(5)+","+firstShape[1].toFixed(5) + " → " + lastShape[0].toFixed(5)+","+lastShape[1].toFixed(5));
     
-    // Nearest + median filter — snap sulla strada
     if (shapeCoords && shapeCoords.length >= 2) {
-      snapShapeLocal(shapeCoords, function(snapped) {
+      snapShapeNearest(shapeCoords, function(snapped) {
         if (snapped && snapped.length >= 2) {
           try {
             var filtered = medianFilter(snapped, 7);
-            map.getSource('bus-route-v1').setData({
-              type: 'Feature',
-              geometry: { type: 'LineString', coordinates: filtered }
-            });
-            appLog("✅ Snap locale+Med7: " + snapped.length + "→" + filtered.length + " pt (0 network)");
+            map.getSource('bus-route-v1').setData({type:'Feature',geometry:{type:'LineString',coordinates:filtered}});
+            appLog("✅ OSRM Nearest+Med7: " + snapped.length + "→" + filtered.length + " pt");
           } catch(e) { appLog("⚠️ Nearest/Med: " + e.message); }
-        }
+        } else { appLog("⚠️ Nearest fallita"); }
       });
     }
     
