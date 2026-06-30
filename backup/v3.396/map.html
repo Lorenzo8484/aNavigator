@@ -1302,8 +1302,11 @@ function snapShapeNearest(shapeCoords, onComplete) {
           fetch(url, {signal: ctrl.signal})
             .then(function(r) { return r.json(); })
             .then(function(data) {
-              if (data && data.waypoints && data.waypoints[0] && data.waypoints[0].location)
-                snapped[idx] = data.waypoints[0].location;
+              if (data && data.waypoints && data.waypoints[0] && data.waypoints[0].location) {
+                var dist = data.waypoints[0].distance || 999;
+                if (dist <= 5) snapped[idx] = data.waypoints[0].location;
+                else { snapped[idx] = shapeCoords[idx]; errors++; }
+              }
               else { snapped[idx] = shapeCoords[idx]; errors++; }
             })
             .catch(function() { snapped[idx] = shapeCoords[idx]; errors++; })
