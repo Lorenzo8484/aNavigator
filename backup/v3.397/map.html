@@ -113,6 +113,25 @@ if (map) {
   map.on("style.load", function() {
     try { if (map.getLayer("building")) map.setLayoutProperty("building", "visibility", "none"); } catch(e) {}
     try { if (map.getLayer("building_outline")) map.setLayoutProperty("building_outline", "visibility", "none"); } catch(e) {}
+    // Scopri layer strade per coloring
+    try {
+      var style = map.getStyle();
+      window._roadLayers = [];
+      window._roadSource = null;
+      window._roadSourceLayer = null;
+      if (style && style.layers) {
+        for (var li = 0; li < style.layers.length; li++) {
+          var l = style.layers[li];
+          if (l.type === 'line' && l.source && l['source-layer'] && 
+              (l.id.indexOf('road') === 0 || l.id.indexOf('highway') === 0 || l.id.indexOf('path') === 0 || l.id.indexOf('street') === 0 || l.id.indexOf('motorway') === 0 || l.id.indexOf('primary') === 0 || l.id.indexOf('secondary') === 0 || l.id.indexOf('tertiary') === 0)) {
+            window._roadLayers.push(l.id);
+            window._roadSource = l.source;
+            window._roadSourceLayer = l['source-layer'];
+          }
+        }
+      }
+      appLog("✓ Strade: " + window._roadLayers.length + " layer, source=" + window._roadSource + "/" + window._roadSourceLayer);
+    } catch(e) { appLog("⚠️ Road layers: " + e.message); }
     appLog("✓ Stile map caricato (OpenFreeMap liberty)");
   });
 }
@@ -1470,7 +1489,7 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
     ['route-line','route-line-v2','bus-route','bus-route-v1','bus-route-v2'].forEach(function(id){try{map.removeLayer(id);}catch(e){}try{map.removeSource(id);}catch(e){}});
     // Layer UNICO: colore = verde per Andata, rosso per Ritorno
     map.addSource('bus-route-v1',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-    map.addLayer({id:'bus-route-v1',type:'line',source:'bus-route-v1',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':routeColor,'line-width':8,'line-opacity':1.0}});
+    map.addLayer({id:'bus-route-v1',type:'line',source:'bus-route-v1',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':routeColor,'line-width':12,'line-opacity':0.7}});
     try{map.moveLayer('user-location-layer');}catch(ee){}
     try{map.moveLayer('user-location-ring');}catch(ee){}
     var lastC = coords[coords.length-1];
