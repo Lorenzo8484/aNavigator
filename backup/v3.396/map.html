@@ -1470,7 +1470,7 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
     ['route-line','route-line-v2','bus-route','bus-route-v1','bus-route-v2'].forEach(function(id){try{map.removeLayer(id);}catch(e){}try{map.removeSource(id);}catch(e){}});
     // Layer UNICO: colore = verde per Andata, rosso per Ritorno
     map.addSource('bus-route-v1',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-    map.addLayer({id:'bus-route-v1',type:'line',source:'bus-route-v1',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':routeColor,'line-width':8,'line-opacity':1.0}});
+    map.addLayer({id:'bus-route-v1',type:'line',source:'bus-route-v1',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':routeColor,'line-width':12,'line-opacity':0.7}});
     try{map.moveLayer('user-location-layer');}catch(ee){}
     try{map.moveLayer('user-location-ring');}catch(ee){}
     var lastC = coords[coords.length-1];
@@ -1524,37 +1524,19 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
       } else { _busOsrmCoords=null; }
     }).catch(function(err){clearTimeout(to);_busOsrmCoords=null;});
     
-    // Route SINGOLA (tutti ~150 waypoint, nessun chunk)
-    var firstShape = shapeCoords[0], lastShape = shapeCoords[shapeCoords.length-1];
-    appLog("📌 Shape: " + shapeCoords.length + " pt, " + firstShape[0].toFixed(5)+","+firstShape[1].toFixed(5) + " → " + lastShape[0].toFixed(5)+","+lastShape[1].toFixed(5));
-    
-    if (shapeCoords && shapeCoords.length >= 2) {
-      var wpts = shapeCoords.map(function(p){ return p[0] + "," + p[1]; }).join(";");
-      var url = OSRM_URL + "/route/v1/driving/" + wpts + "?geometries=geojson&overview=full&alternatives=false";
-      appLog("🛣️ Route: " + shapeCoords.length + " waypoint -> OSRM (singola chiamata)");
-      var ctrl = new AbortController();
-      var to = setTimeout(function(){ ctrl.abort(); }, 30000);
-      fetch(url, {signal: ctrl.signal})
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          clearTimeout(to);
-          if (data && data.routes && data.routes[0] && data.routes[0].geometry) {
-            var rc = data.routes[0].geometry.coordinates;
-            appLog("✅ Route singola: " + rc.length + " pt stradali");
-            map.getSource('bus-route-v1').setData({type:'Feature',geometry:{type:'LineString',coordinates:rc}});
-            _routeSteps = [];
-            if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
-              var cum = 0;
-              for (var si = 0; si < data.routes[0].legs[0].steps.length; si++) {
-                var s = data.routes[0].legs[0].steps[si];
-                cum += s.distance || 0;
-                _routeSteps.push({name: s.name || "", cumDist: cum});
-              }
-            }
-          } else { appLog("⚠️ Route singola fallita"); }
-        })
-        .catch(function(err) { clearTimeout(to); appLog("⚠️ Route error: " + (err.message||err)); });
-    }
+        // Nearest + med filter — punti TPER snapati indipendentemente, niente route
+    snapShapeNearest(shapeCoords, function(snapped) {
+      if (snapped && snapped.length >= 2) {
+        try {
+          var filtered = medianFilter(snapped, 7);
+          map.getSource('bus-route-v1').setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: filtered }
+          });
+          appLog("✅ Nearest+Med7: " + snapped.length + "→" + filtered.length + " pt");
+        } catch(e) { appLog("⚠️ Nearest/Med: " + e.message); }
+      }
+    });
     
     setTimeout(function(){pushPosition(userLat,userLng,userCourse||0,performance.now());try{webkit.messageHandlers.routeReady.postMessage("ok");}catch(e){}},500);
   } else {
