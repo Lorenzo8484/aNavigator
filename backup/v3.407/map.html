@@ -1091,14 +1091,14 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
   
   appLog("   " + waypts.length + " waypoint totali");
   
-  // Singolo chunk se <= 35 waypoint
-  if (waypts.length <= 35) {
+  // Singolo chunk se <= 30 waypoint (Match ha limite ~100, ma teniamo 30 per sicurezza)
+  if (waypts.length <= 30) {
     return routeChunkFull(waypts, 0, onComplete);
   }
   
-  // Multi chunk: 30 waypoint + 3 overlap
+  // Multi chunk: 25 waypoint + 3 overlap
   var allCoords = [];
-  var chunkSize = 30;
+  var chunkSize = 25;
   var overlap = 3;
   var chunks = [];
   for (var ci = 0; ci < waypts.length; ci += chunkSize) {
@@ -1146,22 +1146,22 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
 }
 
 function routeChunkFull(waypoints, idx, onComplete) {
-  var url = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&steps=true";
-  appLog("   Chunk " + (idx+1) + " " + waypoints.length + " waypoint -> Route FULL");
+  var url = OSRM_URL + "/match/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&steps=true";
+  appLog("   Chunk " + (idx+1) + " " + waypoints.length + " waypoint -> Match FULL");
   var ctrl = new AbortController();
   var to = setTimeout(function(){ ctrl.abort(); }, 30000);
   fetch(url, {signal: ctrl.signal})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       clearTimeout(to);
-      if (data && data.routes && data.routes[0] && data.routes[0].geometry) {
-        var rc = data.routes[0].geometry.coordinates;
-        appLog("   ✅ Chunk " + (idx+1) + ": " + rc.length + " pt stradali. Primo: " + rc[0][0].toFixed(5)+","+rc[0][1].toFixed(5) + " Ultimo: " + rc[rc.length-1][0].toFixed(5)+","+rc[rc.length-1][1].toFixed(5));
+      if (data && data.matchings && data.matchings[0] && data.matchings[0].geometry) {
+        var rc = data.matchings[0].geometry.coordinates;
+        appLog("   ✅ Match chunk " + (idx+1) + ": " + rc.length + " pt. Primo: " + rc[0][0].toFixed(5)+","+rc[0][1].toFixed(5) + " Ultimo: " + rc[rc.length-1][0].toFixed(5)+","+rc[rc.length-1][1].toFixed(5));
         // Strade
-        if (data.routes[0].legs && data.routes[0].legs.length > 0) {
+        if (data.matchings[0].legs && data.matchings[0].legs.length > 0) {
           var stradaStr = "";
-          for (var si = 0; si < data.routes[0].legs.length; si++) {
-            var leg = data.routes[0].legs[si];
+          for (var si = 0; si < data.matchings[0].legs.length; si++) {
+            var leg = data.matchings[0].legs[si];
             if (leg.steps) {
               for (var sj = 0; sj < leg.steps.length; sj++) {
                 var step = leg.steps[sj];
@@ -1175,12 +1175,12 @@ function routeChunkFull(waypoints, idx, onComplete) {
         }
         onComplete(rc);
       } else {
-        throw data && data.message ? data.message : "no route";
+        throw data && data.message ? data.message : "no match";
       }
     })
     .catch(function(err) {
       clearTimeout(to);
-      appLog("⚠️ Route full chunk " + (idx+1) + " error: " + (err.message||err));
+      appLog("⚠️ Match chunk " + (idx+1) + " error: " + (err.message||err));
       // Fallback: usa waypoints raw come linea retta
       var raw = waypoints.map(function(w){ var p = w.split(","); return [parseFloat(p[0]), parseFloat(p[1])]; });
       onComplete(raw);
