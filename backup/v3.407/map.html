@@ -1061,7 +1061,7 @@ var _MONTH_NAMES = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott",
 // Waypoint ogni 10-20m = OSRM non puo prendere strade alternative
 // Se troppi waypoint, splitta in chunk e concatena
 // ===================================================================
-function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
+function routeThroughStops(stops, shapeCoords, onComplete) {
   // Waypoints = shape TPER + fermate (tutti)
   var waypts = [];
   if (shapeCoords && shapeCoords.length >= 2) {
@@ -1091,15 +1091,15 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
   
   appLog("   " + waypts.length + " waypoint totali");
   
-  // Singolo chunk se <= 30 waypoint (Match ha limite ~100, ma teniamo 30 per sicurezza)
-  if (waypts.length <= 30) {
+  // Singolo chunk se <= 70 waypoint
+  if (waypts.length <= 70) {
     return routeChunkFull(waypts, 0, onComplete);
   }
   
-  // Multi chunk: 25 waypoint + 3 overlap
+  // Multi chunk: 65 waypoint + 5 overlap
   var allCoords = [];
-  var chunkSize = 25;
-  var overlap = 3;
+  var chunkSize = 65;
+  var overlap = 5;
   var chunks = [];
   for (var ci = 0; ci < waypts.length; ci += chunkSize) {
     var end = Math.min(ci + chunkSize + overlap, waypts.length);
@@ -1118,9 +1118,11 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
     routeChunkFull(chunks[chunkIdx], chunkIdx, function(coords) {
       if (coords && coords.length >= 2) {
         if (chunkIdx === 0) {
+          // Primo chunk: tutti i punti
           for (var i = 0; i < coords.length; i++) allCoords.push(coords[i]);
           appLog("   Chunk " + (chunkIdx+1) + "/" + chunks.length + ": +" + coords.length + " pt. Primo: " + coords[0][0].toFixed(5)+","+coords[0][1].toFixed(5) + " Ultimo: " + coords[coords.length-1][0].toFixed(5)+","+coords[coords.length-1][1].toFixed(5));
         } else {
+          // Chunk successivi: cerca il punto di chunk 2 PIU VICINO all'ultimo punto di chunk 1
           var lastPt = allCoords[allCoords.length - 1];
           var bestIdx = 0, bestDist = Infinity;
           for (var ci = 0; ci < Math.min(200, coords.length); ci++) {
@@ -1133,8 +1135,6 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
           for (var i = bestIdx + 1; i < coords.length; i++) { allCoords.push(coords[i]); added++; }
           appLog("   Chunk " + (chunkIdx+1) + "/" + chunks.length + ": +" + added + " pt (giunzione idx " + bestIdx + "). Primo agg: " + allCoords[allCoords.length-added][0].toFixed(5)+","+allCoords[allCoords.length-added][1].toFixed(5) + " Ultimo: " + coords[coords.length-1][0].toFixed(5)+","+coords[coords.length-1][1].toFixed(5));
         }
-        // Aggiornamento LIVE percorso visibile
-        if (onChunk) onChunk(allCoords.slice());
       } else {
         appLog("   ⚠️ Chunk " + (chunkIdx+1) + "/" + chunks.length + ": FALLITO");
       }
@@ -1146,22 +1146,22 @@ function routeThroughStops(stops, shapeCoords, onComplete, onChunk) {
 }
 
 function routeChunkFull(waypoints, idx, onComplete) {
-  var url = OSRM_URL + "/match/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&steps=true";
-  appLog("   Chunk " + (idx+1) + " " + waypoints.length + " waypoint -> Match FULL");
+  var url = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&alternatives=false&steps=true";
+  appLog("   Chunk " + (idx+1) + " " + waypoints.length + " waypoint -> Route FULL");
   var ctrl = new AbortController();
   var to = setTimeout(function(){ ctrl.abort(); }, 30000);
   fetch(url, {signal: ctrl.signal})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       clearTimeout(to);
-      if (data && data.matchings && data.matchings[0] && data.matchings[0].geometry) {
-        var rc = data.matchings[0].geometry.coordinates;
-        appLog("   ✅ Match chunk " + (idx+1) + ": " + rc.length + " pt. Primo: " + rc[0][0].toFixed(5)+","+rc[0][1].toFixed(5) + " Ultimo: " + rc[rc.length-1][0].toFixed(5)+","+rc[rc.length-1][1].toFixed(5));
+      if (data && data.routes && data.routes[0] && data.routes[0].geometry) {
+        var rc = data.routes[0].geometry.coordinates;
+        appLog("   ✅ Chunk " + (idx+1) + ": " + rc.length + " pt stradali. Primo: " + rc[0][0].toFixed(5)+","+rc[0][1].toFixed(5) + " Ultimo: " + rc[rc.length-1][0].toFixed(5)+","+rc[rc.length-1][1].toFixed(5));
         // Strade
-        if (data.matchings[0].legs && data.matchings[0].legs.length > 0) {
+        if (data.routes[0].legs && data.routes[0].legs.length > 0) {
           var stradaStr = "";
-          for (var si = 0; si < data.matchings[0].legs.length; si++) {
-            var leg = data.matchings[0].legs[si];
+          for (var si = 0; si < data.routes[0].legs.length; si++) {
+            var leg = data.routes[0].legs[si];
             if (leg.steps) {
               for (var sj = 0; sj < leg.steps.length; sj++) {
                 var step = leg.steps[sj];
@@ -1175,12 +1175,12 @@ function routeChunkFull(waypoints, idx, onComplete) {
         }
         onComplete(rc);
       } else {
-        throw data && data.message ? data.message : "no match";
+        throw data && data.message ? data.message : "no route";
       }
     })
     .catch(function(err) {
       clearTimeout(to);
-      appLog("⚠️ Match chunk " + (idx+1) + " error: " + (err.message||err));
+      appLog("⚠️ Route full chunk " + (idx+1) + " error: " + (err.message||err));
       // Fallback: usa waypoints raw come linea retta
       var raw = waypoints.map(function(w){ var p = w.split(","); return [parseFloat(p[0]), parseFloat(p[1])]; });
       onComplete(raw);
@@ -1517,41 +1517,31 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
     
     _busNavData={line:lineNum,dir:dir,trip:trip,returnStops:returnStops};
     
-    // OSRM Route + radiuses=5 + chunking — PERFETTO sulle strade
-    var _cacheKey = "route_" + lineNum + "_" + dir;
-    var _cached = window._routeCache && window._routeCache[_cacheKey];
-    if (_cached && _cached.length >= 2) {
-      appLog("✅ Route in cache: " + _cached.length + " pt");
-      try {
-        map.getSource('bus-route-v1').setData({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: _cached }
-        });
-      } catch(e) {}
-      try{if(markerDest)markerDest.setLngLat(_cached[_cached.length-1]);}catch(ee){}
-      _busOsrmCoords = _cached;
-      _routeSteps = [{name: "", cumDist: _cached.length}];
-    } else {
-      var _updateRoute = function(osrmCoords) {
-        if (!osrmCoords || osrmCoords.length < 2) return;
-        try { map.getSource('bus-route-v1').setData({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: osrmCoords }
-        }); } catch(e) {}
-        try{if(markerDest)markerDest.setLngLat(osrmCoords[osrmCoords.length-1]);}catch(ee){}
-        _busOsrmCoords = osrmCoords;
-      };
-      routeThroughStops(tripStops, shapeCoords, function(osrmCoords) {
-        if (osrmCoords && osrmCoords.length >= 2) {
-          if (!window._routeCache) window._routeCache = {};
-          window._routeCache[_cacheKey] = osrmCoords;
-          _updateRoute(osrmCoords);
-          _routeSteps = [{name: "", cumDist: osrmCoords.length}];
-          appLog("✅ OSRM Route: " + osrmCoords.length + " pt SULLA STRADA");
+    // OSRM route (sempre sulla direzione selezionata)
+    var wps=tripStops.map(function(s){return s.lon+","+s.lat;}).join(";");
+    var url=OSRM_URL+"/route/v1/driving/"+wps+"?geometries=geojson&overview=full&alternatives=false";
+    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},10000);
+    fetch(url,{signal:ctrl.signal}).then(function(r){return r.json();}).then(function(data){
+      clearTimeout(to);
+      if(data&&data.routes&&data.routes[0]){
+        var rc=data.routes[0].geometry.coordinates;
+        // NON sovrascrivere bus-route-v1 — la shape TPER e il percorso VISIBILE
+        try{if(markerDest)markerDest.setLngLat(rc[rc.length-1]);}catch(ee){}
+        _busOsrmCoords=rc;
+        // Estrai nomi strade OSRM per la barra via in basso
+        _routeSteps = [];
+        var cumDist = 0;
+        if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
+          for (var si = 0; si < data.routes[0].legs[0].steps.length; si++) {
+            var step = data.routes[0].legs[0].steps[si];
+            cumDist += step.distance || 0;
+            _routeSteps.push({name: step.name || "", cumDist: cumDist});
+          }
+        } else {
+          _routeSteps = [{name: "", cumDist: rc.length}];
         }
-      }, _updateRoute); // onChunk = aggiorna LIVE dopo ogni chunk
-    }
-    
+      } else { _busOsrmCoords=null; }
+    }).catch(function(err){clearTimeout(to);_busOsrmCoords=null;});
     
     setTimeout(function(){pushPosition(userLat,userLng,userCourse||0,performance.now());try{webkit.messageHandlers.routeReady.postMessage("ok");}catch(e){}},500);
   } else {
@@ -1631,7 +1621,7 @@ function startBusNavigation(dirOverride) {
     for (var i = 0; i < navStops.length; i++) {
       waypoints.push(navStops[i].lon + "," + navStops[i].lat);
     }
-    var osrmUrl = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full";
+    var osrmUrl = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&alternatives=false";
     appLog("🧭 Bus OSRM through " + navStops.length + " stops (" + waypoints.length + " waypoints)");
     
     var controller = new AbortController();
@@ -1643,7 +1633,7 @@ function startBusNavigation(dirOverride) {
         clearTimeout(timeoutId);
         if (data && data.routes && data.routes[0]) {
           var combined = data.routes[0].geometry.coordinates;
-          appLog("✅ OSRM Route: " + combined.length + " pt");
+          appLog("✅ OSRM full route: " + combined.length + " pt");
           startBusNavWithCoords(combined, busData, lastStop);
         } else {
           throw "no route";
