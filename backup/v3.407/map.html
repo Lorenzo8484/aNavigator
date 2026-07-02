@@ -1517,31 +1517,29 @@ function selectBusLine(lineNum, dir, patIdx, tripIdx) {
     
     _busNavData={line:lineNum,dir:dir,trip:trip,returnStops:returnStops};
     
-    // OSRM route (sempre sulla direzione selezionata)
-    var wps=tripStops.map(function(s){return s.lon+","+s.lat;}).join(";");
-    var url=OSRM_URL+"/route/v1/driving/"+wps+"?geometries=geojson&overview=full&alternatives=false";
-    var ctrl=new AbortController(); var to=setTimeout(function(){ctrl.abort();},10000);
-    fetch(url,{signal:ctrl.signal}).then(function(r){return r.json();}).then(function(data){
-      clearTimeout(to);
-      if(data&&data.routes&&data.routes[0]){
-        var rc=data.routes[0].geometry.coordinates;
-        // NON sovrascrivere bus-route-v1 — la shape TPER e il percorso VISIBILE
-        try{if(markerDest)markerDest.setLngLat(rc[rc.length-1]);}catch(ee){}
-        _busOsrmCoords=rc;
-        // Estrai nomi strade OSRM per la barra via in basso
-        _routeSteps = [];
-        var cumDist = 0;
-        if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
-          for (var si = 0; si < data.routes[0].legs[0].steps.length; si++) {
-            var step = data.routes[0].legs[0].steps[si];
-            cumDist += step.distance || 0;
-            _routeSteps.push({name: step.name || "", cumDist: cumDist});
-          }
-        } else {
-          _routeSteps = [{name: "", cumDist: rc.length}];
+    // OSRM Route via shapeCoords (downsample RDP + chunk 65) — percorso SULLA STRADA
+    var _cacheKey = "route_" + lineNum + "_" + dir;
+    var _cached = window._routeCache && window._routeCache[_cacheKey];
+    if (_cached && _cached.length >= 2) {
+      appLog("✅ Route in cache: " + _cached.length + " pt");
+      try { map.getSource('bus-route-v1').setData({type:'Feature',geometry:{type:'LineString',coordinates:_cached}}); } catch(e) {}
+      try { if(markerDest) markerDest.setLngLat(_cached[_cached.length-1]); } catch(ee) {}
+      _busOsrmCoords = _cached;
+      _routeSteps = [{name: "", cumDist: _cached.length}];
+    } else {
+      routeThroughStops(tripStops, shapeCoords, function(osrmCoords) {
+        if (osrmCoords && osrmCoords.length >= 2) {
+          if (!window._routeCache) window._routeCache = {};
+          window._routeCache[_cacheKey] = osrmCoords;
+          // SOSTITUISCE bus-route-v1 con coordinate OSRM (sulla strada)
+          try { map.getSource('bus-route-v1').setData({type:'Feature',geometry:{type:'LineString',coordinates:osrmCoords}}); } catch(e) {}
+          try { if(markerDest) markerDest.setLngLat(osrmCoords[osrmCoords.length-1]); } catch(ee) {}
+          _busOsrmCoords = osrmCoords;
+          _routeSteps = [{name: "", cumDist: osrmCoords.length}];
+          appLog("✅ OSRM Route: " + osrmCoords.length + " pt SULLA STRADA");
         }
-      } else { _busOsrmCoords=null; }
-    }).catch(function(err){clearTimeout(to);_busOsrmCoords=null;});
+      });
+    }
     
     setTimeout(function(){pushPosition(userLat,userLng,userCourse||0,performance.now());try{webkit.messageHandlers.routeReady.postMessage("ok");}catch(e){}},500);
   } else {
