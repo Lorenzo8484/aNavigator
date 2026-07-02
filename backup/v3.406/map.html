@@ -1146,8 +1146,7 @@ function routeThroughStops(stops, shapeCoords, onComplete) {
 }
 
 function routeChunkFull(waypoints, idx, onComplete) {
-  var radiuses = waypoints.map(function(){return "20";}).join(";");
-  var url = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&alternatives=false&steps=true&radiuses=" + radiuses;
+  var url = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&steps=true";
   appLog("   Chunk " + (idx+1) + " " + waypoints.length + " waypoint -> Route FULL");
   var ctrl = new AbortController();
   var to = setTimeout(function(){ ctrl.abort(); }, 30000);
@@ -1624,7 +1623,7 @@ function startBusNavigation(dirOverride) {
     var osrmUrl = OSRM_URL + "/route/v1/driving/"
       + userLng + "," + userLat + ";"
       + firstStop.lon + "," + firstStop.lat
-      + "?geometries=geojson&overview=full&radiuses=20;20";
+      + "?geometries=geojson&overview=full";
     
     fetch(osrmUrl)
       .then(function(r) { return r.json(); })
@@ -1645,7 +1644,7 @@ function startBusNavigation(dirOverride) {
     for (var i = 0; i < navStops.length; i++) {
       waypoints.push(navStops[i].lon + "," + navStops[i].lat);
     }
-    var osrmUrl = OSRM_URL + "/match/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full&radiuses=20;" + waypoints.slice(1).map(function(){return "20";}).join(";");
+    var osrmUrl = OSRM_URL + "/route/v1/driving/" + waypoints.join(";") + "?geometries=geojson&overview=full";
     appLog("🧭 Bus OSRM through " + navStops.length + " stops (" + waypoints.length + " waypoints)");
     
     var controller = new AbortController();
@@ -1655,9 +1654,9 @@ function startBusNavigation(dirOverride) {
       .then(function(r) { return r.json(); })
       .then(function(data) {
         clearTimeout(timeoutId);
-        if (data && data.matchings && data.matchings[0]) {
-          var combined = data.matchings[0].geometry.coordinates;
-          appLog("✅ OSRM Match: " + combined.length + " pt");
+        if (data && data.routes && data.routes[0]) {
+          var combined = data.routes[0].geometry.coordinates;
+          appLog("✅ OSRM Route: " + combined.length + " pt");
           startBusNavWithCoords(combined, busData, lastStop);
         } else {
           throw "no route";
